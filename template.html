@@ -1,0 +1,206 @@
+<style>
+  /* CORE GUMMY STYLES */
+  .hidden { display: none !important; }
+  .gummy-board { background: var(--bg-panel); border: 4px solid var(--border); border-radius: 3rem; padding: 40px; box-shadow: 0 15px 30px rgba(0,0,0,0.1), inset 0 6px 0 var(--bubble-gloss); backdrop-filter: blur(10px); }
+  .input-carved { background: var(--bg-input) !important; border: 3px solid var(--border) !important; border-radius: 2rem; padding: 15px 20px; color: var(--text-input) !important; font-weight: 900; width: 100%; outline: none; transition: 0.2s; box-shadow: inset 0 6px 10px rgba(0,0,0,0.15); cursor: pointer; }
+  .input-carved:focus { border-color: #00BBF9 !important; }
+
+  .forge-layout { display: flex; gap: 20px; width: 100%; align-items: stretch; height: 100%; padding: 20px; box-sizing: border-box; }
+  @media (max-width: 1024px) { .forge-layout { flex-direction: column; height: auto; } }
+
+  .forge-sidebar { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; border-bottom: 12px solid #FF006E; border-color: #FF006E; margin-bottom: 0;}
+  @media (max-width: 1024px) { .forge-sidebar { width: 100%; } }
+
+  .forge-main { flex: 1; border-bottom: 12px solid #00BBF9; border-color: #00BBF9; display: flex; flex-direction: column; overflow: hidden; padding: 0 !important; margin-bottom: 0;}
+  @media (max-width: 1024px) { .forge-main { overflow: visible; } }
+
+  .gender-btn { flex: 1; padding: 15px; border-radius: 1.8rem; font-weight: 900; font-size: 12px; transition: 0.2s; border: 3px solid var(--border); background: transparent; color: var(--text-main); opacity: 0.4; cursor: pointer; }
+  .gender-btn.active.male { background: #00BBF9; color: #1E1B4B; opacity: 1; border-color: #00BBF9; }
+  .gender-btn.active.female { background: #FF006E; color: #FFF; opacity: 1; border-color: #FF006E; }
+
+  .data-section { padding: 25px; border-bottom: 4px dashed var(--border); }
+  .data-section:last-child { border-bottom: none; }
+  .section-title { font-family: 'Fredoka', sans-serif; font-size: 1.2rem; color: #00BBF9; margin-bottom: 20px; font-style: italic; text-transform: uppercase;}
+
+  .data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
+
+  .data-item { background: var(--bg-core); border-radius: 1.5rem; border: 3px solid var(--border); padding: 15px 20px; transition: 0.2s; cursor: pointer; position: relative; }
+  .data-item:hover { border-color: #FEE440; transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+  .data-item:active { transform: scale(0.98); }
+
+  .data-label { font-size: 10px; font-weight: 900; opacity: 0.5; text-transform: uppercase; margin-bottom: 5px; display: block; letter-spacing: 1px; }
+  .data-val { font-size: 1.1rem; font-weight: 800; word-break: break-word; line-height: 1.3; }
+  .data-val.mono { font-family: monospace; font-size: 0.95rem; color: #FF006E; }
+
+  /* LANDER STYLES (WHITEPAPER FORMAT) */
+  .lander-badge { display: inline-block; background: #FEE440; color: #1E1B4B; padding: 12px 35px; border-radius: 50px; font-weight: 900; font-size: 14px; letter-spacing: 4px; box-shadow: 0 10px 20px rgba(0,0,0,0.2); margin-bottom: 30px; animation: float 3s ease-in-out infinite; }
+  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+  .cta-go-app { background: #00BBF9; color: #1E1B4B; font-family: 'Fredoka', sans-serif; font-weight: 900; font-size: 1.5rem; padding: 25px 60px; border-radius: 50px; border: 6px solid #fff; box-shadow: 0 10px 0 #008ebf, 0 15px 20px rgba(0,0,0,0.2); cursor: pointer; transition: 0.2s; text-transform: uppercase; margin-top: 20px; }
+  .cta-go-app:hover { transform: translateY(-5px); box-shadow: 0 15px 0 #008ebf, 0 20px 25px rgba(0,0,0,0.3); }
+  .cta-go-app:active { transform: translateY(5px); box-shadow: 0 5px 0 #008ebf; }
+
+  /* Typography for Long Form Content */
+  .article-title { font-family: 'Fredoka', sans-serif; font-size: 2.2rem; border-bottom: 6px solid var(--border); padding-bottom: 15px; margin-bottom: 25px; text-transform: uppercase; }
+  .article-text { font-size: 1.15rem; font-weight: 600; opacity: 0.85; line-height: 1.9; margin-bottom: 25px; text-align: justify; }
+  .instruction-step { background: var(--bg-core); border: 3px solid var(--border); border-left: 8px solid #00BBF9; padding: 20px; border-radius: 1.5rem; margin-bottom: 15px; font-size: 1.1rem; font-weight: 700; line-height: 1.6; }
+</style>
+
+<div style="height: 100%; overflow-y: auto;" class="custom-scroll">
+
+  <div id="view-info" style="max-width: 1000px; margin: 0 auto; padding: 60px 20px 100px 20px;">
+
+    <div style="text-align: center; margin-bottom: 80px;">
+      <div class="lander-badge">🚀 {{t.lBadge}}</div>
+      <h1 style="font-family: 'Fredoka', sans-serif; font-size: clamp(3rem, 8vw, 7rem); font-weight: 900; line-height: 0.9; margin-bottom: 30px; font-style: italic; letter-spacing: -2px;">
+        {{t.lTitle}} <br><span style="color: #FF006E; text-shadow: 0 15px 25px rgba(255,0,110,0.3);">{{t.lTitleHl}}</span>
+      </h1>
+      <p style="font-size: 1.4rem; font-weight: 800; opacity: 0.7; max-width: 800px; margin: 0 auto 50px auto; line-height: 1.6;">
+        {{t.lDesc}}
+      </p>
+      <button class="cta-go-app">{{t.lBtnGo}}</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 60px;">
+
+      <div class="gummy-board" style="border-color: #00BBF9;">
+        <h2 class="article-title" style="color: #00BBF9;">{{t.lSec1Title}}</h2>
+        <p class="article-text">{{t.lSec1P1}}</p>
+        <p class="article-text" style="margin-bottom: 0;">{{t.lSec1P2}}</p>
+      </div>
+
+      <div class="gummy-board" style="border-color: #FF006E;">
+        <h2 class="article-title" style="color: #FF006E;">{{t.lSec2Title}}</h2>
+        <p class="article-text">{{t.lSec2P1}}</p>
+        <p class="article-text" style="margin-bottom: 0;">{{t.lSec2P2}}</p>
+      </div>
+
+      <div class="gummy-board" style="border-color: #FEE440;">
+        <h2 class="article-title" style="color: #FEE440;">{{t.lSec3Title}}</h2>
+        <p class="article-text">{{t.lSec3P1}}</p>
+        <p class="article-text">{{t.lSec3P2}}</p>
+        <p class="article-text" style="margin-bottom: 0;">{{t.lSec3P3}}</p>
+      </div>
+
+      <div class="gummy-board" style="border-color: #B14AED;">
+        <h2 class="article-title" style="color: #B14AED;">{{t.lSec4Title}}</h2>
+        <p class="article-text">{{t.lSec4P1}}</p>
+        <p class="article-text" style="margin-bottom: 0;">{{t.lSec4P2}}</p>
+      </div>
+
+      <div class="gummy-board" style="border-color: #3DDC84;">
+        <h2 class="article-title" style="color: #3DDC84;">{{t.lSec5Title}}</h2>
+        <p class="article-text" style="margin-bottom: 30px;">{{t.lSec5P1}}</p>
+
+        <div class="instruction-step" style="border-left-color: #00BBF9;">{{t.lSec5P2}}</div>
+        <div class="instruction-step" style="border-left-color: #FEE440;">{{t.lSec5P3}}</div>
+        <div class="instruction-step" style="border-left-color: #B14AED;">{{t.lSec5P4}}</div>
+        <div class="instruction-step" style="border-left-color: #3DDC84;">{{t.lSec5P5}}</div>
+        <div class="instruction-step" style="border-left-color: #FF006E; margin-bottom: 0;">{{t.lSec5P6}}</div>
+      </div>
+
+    </div>
+
+    <div style="text-align: center; margin-top: 80px;">
+      <button class="cta-go-app">{{t.lBtnGo}}</button>
+    </div>
+  </div>
+
+  <div id="view-app" class="hidden forge-layout">
+
+    <div class="gummy-board forge-sidebar">
+      <h2 style="font-family: 'Fredoka', sans-serif; font-size: 1.5rem; font-style: italic; border-bottom: 4px dashed var(--border); padding-bottom: 15px;">⚙️ {{t.appTitle}}</h2>
+
+      <div>
+        <label class="data-label" style="padding-left: 10px;">{{t.lblRegion}}</label>
+        <select id="input-region" class="input-carved">
+          <option value="us">🇺🇸 UNITED STATES</option>
+          <option value="id">🇮🇩 INDONESIA</option>
+          <option value="jp">🇯🇵 JAPAN</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="data-label" style="padding-left: 10px;">{{t.lblGender}}</label>
+        <div style="display: flex; gap: 10px;">
+          <button id="btn-male" class="gender-btn active male">{{t.btnMale}}</button>
+          <button id="btn-female" class="gender-btn female">{{t.btnFemale}}</button>
+        </div>
+      </div>
+
+      <div style="margin-top: auto; background: #3DDC84; padding: 25px; border-radius: 2rem; color: #1E1B4B; font-family: 'Fredoka', sans-serif; font-weight: 900; text-align: center; border-bottom: 8px solid rgba(0,0,0,0.2); font-size: 1.2rem;">
+        🛡️ {{t.statusLevel}}
+      </div>
+    </div>
+
+    <div class="gummy-board forge-main custom-scroll" style="overflow-y: auto;">
+
+      <div style="padding: 30px; display: flex; gap: 25px; align-items: center; border-bottom: 8px solid var(--border); background: rgba(0,0,0,0.05);">
+        <img id="val-avatar" src="" style="width: 120px; height: 120px; border-radius: 2.5rem; border: 6px solid #00BBF9; background: white; box-shadow: 0 10px 20px rgba(0,0,0,0.2);">
+        <div>
+          <h2 id="val-name" style="font-family: 'Fredoka', sans-serif; font-size: clamp(2rem, 4vw, 3.5rem); font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 10px; font-style: italic;">---</h2>
+          <div id="val-job" style="display: inline-block; background: #FF006E; color: white; padding: 8px 20px; border-radius: 50px; font-weight: 900; font-size: 14px; text-transform: uppercase;">---</div>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <div class="section-title">{{t.grpPersonal}}</div>
+        <div class="data-grid">
+          <div class="data-item copy-trigger" data-key="maiden"><span class="data-label">{{t.lblMaiden}}</span><span class="data-val" id="val-maiden">---</span></div>
+          <div class="data-item copy-trigger" data-key="ssn"><span class="data-label">{{t.lblSSN}}</span><span class="data-val mono" id="val-ssn">---</span></div>
+          <div class="data-item copy-trigger" data-key="dob"><span class="data-label">{{t.lblDob}}</span><span class="data-val" id="val-dob">---</span></div>
+          <div class="data-item copy-trigger" data-key="zodiac"><span class="data-label">{{t.lblAgeZodiac}}</span><span class="data-val" id="val-zodiac">---</span></div>
+          <div class="data-item copy-trigger" data-key="physical"><span class="data-label">{{t.lblHeightWeight}}</span><span class="data-val" id="val-physical">---</span></div>
+          <div class="data-item copy-trigger" data-key="blood"><span class="data-label">{{t.lblBlood}}</span><span class="data-val" id="val-blood" style="color: #FF006E; font-size: 1.5rem;">---</span></div>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <div class="section-title" style="color: #3DDC84;">{{t.grpContact}}</div>
+        <div class="data-grid">
+          <div class="data-item copy-trigger" data-key="addr" style="grid-column: 1 / -1;"><span class="data-label">{{t.lblAddr}}</span><span class="data-val" id="val-addr" style="font-size: 1.5rem;">---</span><div id="val-city" style="font-size: 1.1rem; opacity: 0.6; font-weight: 800; margin-top: 5px;">---</div></div>
+          <div class="data-item copy-trigger" data-key="geo"><span class="data-label">{{t.lblGeo}}</span><span class="data-val mono" id="val-geo">---</span></div>
+          <div class="data-item copy-trigger" data-key="phone"><span class="data-label">{{t.lblPhone}}</span><span class="data-val" id="val-phone">---</span></div>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <div class="section-title" style="color: #B14AED;">{{t.grpDigital}}</div>
+        <div class="data-grid">
+          <div class="data-item copy-trigger" data-key="email"><span class="data-label">{{t.lblEmail}}</span><span class="data-val" id="val-email">---</span></div>
+          <div class="data-item copy-trigger" data-key="user"><span class="data-label">{{t.lblCodeName}}</span><span class="data-val" id="val-user" style="color: #00BBF9; font-size: 1.3rem;">---</span></div>
+          <div class="data-item copy-trigger" data-key="pass"><span class="data-label">{{t.lblPass}}</span><span class="data-val mono" id="val-pass" style="color: #FF006E; font-size: 1.3rem;">---</span></div>
+          <div class="data-item copy-trigger" data-key="website"><span class="data-label">{{t.lblWebsite}}</span><span class="data-val" id="val-website" style="color: #00BBF9;">---</span></div>
+          <div class="data-item copy-trigger" data-key="ua" style="grid-column: 1 / -1;"><span class="data-label">{{t.lblUserAgent}}</span><span class="data-val mono" id="val-ua" style="font-size: 0.9rem; color: var(--text-muted); display: block; line-height: 1.5;">---</span></div>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <div class="section-title" style="color: #FEE440;">{{t.grpFinance}}</div>
+        <div class="data-grid">
+          <div class="data-item copy-trigger" data-key="cc" style="background: #1E1B4B; color: white; grid-column: 1 / -1; border-color: #1E1B4B; padding: 25px;">
+            <div style="position: absolute; right: 25px; top: 25px; font-size: 3rem; opacity: 0.2;">💳</div>
+            <span class="data-label" style="color: #00BBF9; margin-bottom: 15px;">{{t.lblMockPay}}</span>
+            <span class="data-val mono" id="val-cc" style="font-size: 2.2rem; letter-spacing: 5px; color: #FEE440; display: block; margin-bottom: 20px;">---</span>
+            <div style="display: flex; gap: 40px;">
+              <div><span class="data-label" style="color: #3DDC84;">{{t.lblExpiry}}</span><span class="data-val" id="val-exp" style="font-size: 1.3rem;">---</span></div>
+              <div><span class="data-label" style="color: #3DDC84;">{{t.lblCvv}}</span><span class="data-val" id="val-cvv" style="font-size: 1.3rem;">---</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="data-section">
+        <div class="section-title" style="color: #FF006E;">{{t.grpTracking}}</div>
+        <div class="data-grid">
+          <div class="data-item copy-trigger" data-key="ups"><span class="data-label">{{t.lblUPS}}</span><span class="data-val mono" id="val-ups">---</span></div>
+          <div class="data-item copy-trigger" data-key="wu"><span class="data-label">{{t.lblWU}}</span><span class="data-val mono" id="val-wu">---</span></div>
+          <div class="data-item copy-trigger" data-key="mg"><span class="data-label">{{t.lblMoneyGram}}</span><span class="data-val mono" id="val-mg">---</span></div>
+          <div class="data-item copy-trigger" data-key="veh"><span class="data-label">{{t.lblVehicleColor}}</span><span class="data-val" id="val-veh">---</span></div>
+          <div class="data-item copy-trigger" data-key="uuid" style="grid-column: 1 / -1;"><span class="data-label">{{t.lblUuid}}</span><span class="data-val mono" id="val-uuid" style="color: var(--text-muted);">---</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

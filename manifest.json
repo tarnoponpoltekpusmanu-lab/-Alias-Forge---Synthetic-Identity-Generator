@@ -1,0 +1,16 @@
+{
+    "id": "alias-forge",
+    "name": "Alias Forge - GENERATOR IDENTITAS PALSU (ANTI LACAK)",
+    "version": "1.0.0",
+    "description": "JANGAN PAKAI NAMA ASLI! Buat profil samaran (Burner Identity) lengkap dengan Alamat, CC Dummy, & Data Biometrik palsu dalam 1 detik. Lindungi privasi Anda dari website mencurigakan.",
+    "author": "Flowork Cyber Division",
+    "tier": "free",
+    "type": "apps",
+    "entry_point": "index.html",
+    "icon_file": "icon.svg",
+    "default_width": 12,
+    "default_height": 9,
+    "slug": "alias-forge",
+    "capabilities": ["client_side_only", "clipboard_write"],
+    "tags": ["fake-identity", "privacy", "mock-data", "generator", "security", "opsec"]
+}

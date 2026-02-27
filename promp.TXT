@@ -1,0 +1,1792 @@
+________________________________________
+BRO, KITA AKAN REFACTORY 500 APPS DARI IFRAME KE DOM BERBASIS TRIAD OS MICRO-FRONTEND. BACA RULE DI BAWAH INI, PAHAMI, DAN GUNAKAN TEMPLATE CONTOH SEBAGAI PATOKAN!
+Ingat selalu dalam otak lo selama percakapan: Jangan buang fitur dan logic original! Lo fokus redesign saja, integrasikan dengan OS Bridge, dan pastikan fitur Download, Render, dan Copy-Paste berfungsi di Android APK via this.sys.
+🎪 9 PILAR ALIRAN DESAIN GUMMY V5.3 (TRIAD OS EDITION)
+1.	OS-Driven UI (No Shell Rendering)
+Aplikasi HARAM merender Header, Sidebar, Main Dock, Action Dock, atau Popup/Modal sendiri. Semua elemen shell sudah diurus oleh AppDirectViewDesktop.vue. HTML aplikasi HANYA berisi Content/Workspace (Canvas, Empty State, dan Form).
+2.	Template Engine & i18n JSON
+Dilarang keras ada teks mati (hardcode) di HTML atau JS! Semua teks diletakkan di i18n.json. Di template.html, gunakan interpolasi {{t.namaKey}}. Di logic.js, panggil via this.sys.t.namaKey.
+3.	Menu & Action Dock via Object (OS Bridge)
+Sidebar, Main Dock, dan Action Dock dideklarasikan di dalam properti menus: {} pada logic.js. Perubahan menu saat runtime (misal: masuk ke mode Settings) WAJIB menggunakan this.sys.setActionDock([]). Klik pada menu akan masuk ke fungsi terpusat onMenuAction(actionId).
+4.	Native-Like Dialogs (Anti-Browser Alert)
+DILARANG KERAS menggunakan alert(), confirm(), atau bikin custom overlay dialog sendiri di HTML. Semuanya wajib panggil this.sys.toast(), this.sys.alert(), atau this.sys.popup().
+5.	Super Gummy & Bubble Estetika (Khusus Form/Konten Internal)
+Jika ada mode Form (Input/Settings), wajib gunakan gaya Super Gummy. Sudut ekstrim border-radius: 3rem atau 2rem. Input gaya "diukir" (var(--bg-input) dengan box-shadow: inset). Wajib pakai efek kilap kaca --bubble-gloss.
+6.	Clean Canvas & Pro Gestures
+Saat masuk mode aplikasi (Workspace) dan gambar sudah ada, jadikan Full Canvas Borderless. Layar utama murni hanya untuk PREVIEW, UPLOAD, dan RESULT. Wajib mendukung interaksi Zoom (Scroll Wheel di Mouse, Pinch/Cubit di Mobile) dan Drag/Pan (Geser) pakai Vanilla JS di logic.js.
+7.	Modular JS (Object format)
+Logic wajib dibungkus dalam module.exports = { ... }. Isolasi manipulasi DOM dengan metode this.find(selector) menggunakan context this.sys.root.
+8.	View State Management
+Gunakan pemisahan View secara manual lewat Vanilla JS (classList.add/remove('hidden') di updateView()). Reset state yang relevan saat pindah tab atau bersihin kanvas.
+9.	Native Standard Fallback
+Untuk copas, gunakan this.sys.copy(). Untuk download, ubah hasil kanvas jadi base64 lalu lempar ke this.sys.download().
+🚫 WAJIB DIHINDARI:
+•	MEMBUANG FITUR ORIGINAL: Pantang membuang logic core lama dengan alasan apapun.
+•	HARDCODE TEXT: Semua string teks harus ada di i18n.json.
+•	BIKIN MENU SENDIRI DI HTML: Jangan ada tag <nav>, <aside>, atau action bar di dalam template.html. Gunakan menus object di OS.
+✅ WAJIB DIPATUHI:
+•	TOMBOL CLEAR: Wajib ada satu Action Dock icon 🗑️ (actionClear) saat di mode app, untuk reset canvas.
+•	ATURAN SUCI KANVAS: Di dalam canvas view, tidak boleh ada input atau menu aneh-aneh selain tombol ganti gambar. Menu input data/setting wajib dipisah ke form (misal this.state.form = true).
+________________________________________
+MASTER BLUEPRINT CODE (PONDASI 3 FILE):
+1. template.html (Murni View & Konten)
+HTML
+<style>
+  .gummy-board { background: var(--bg-panel); border: 4px solid var(--border); border-radius: 3rem; padding: 30px; box-shadow: 0 15px 30px rgba(0,0,0,0.1), inset 0 6px 0 var(--bubble-gloss); margin-bottom: 20px; backdrop-filter: blur(10px); }
+  .upload-zone { background: var(--bg-input); border: 4px dashed var(--brand); border-radius: 2rem; padding: 40px 20px; text-align: center; cursor: pointer; position: relative; transition: 0.3s; box-shadow: inset 0 6px 10px rgba(0,0,0,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .upload-zone:active { transform: scale(0.98); background: rgba(0,0,0,0.6); }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 5; }
+  .full-canvas-view { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background-image: radial-gradient(var(--border) 2px, transparent 2px); background-size: 20px 20px; overflow: hidden; cursor: grab; }
+  .full-canvas-view:active { cursor: grabbing; }
+  #zoom-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; transform-origin: center center; transition: transform 0.05s linear; will-change: transform; }
+  #zoom-container img { max-width: 90%; max-height: 80%; object-fit: contain; pointer-events: none; filter: drop-shadow(0 15px 25px rgba(0,0,0,0.3)); }
+  .canvas-badge { position: absolute; top: 20px; right: 20px; background: var(--bg-panel); color: var(--text-main); padding: 8px 15px; border-radius: 2rem; border: 3px solid var(--border); font-size: 11px; font-weight: 900; box-shadow: 0 5px 10px rgba(0,0,0,0.2), inset 0 3px 0 var(--bubble-gloss); z-index: 20; cursor: pointer; transition: 0.2s; backdrop-filter: blur(10px); }
+  .canvas-badge:active { transform: scale(0.95); }
+  .canvas-badge input { display: none; }
+  .input-carved { background: var(--bg-input) !important; border: 3px solid var(--border) !important; border-radius: 2rem; padding: 15px 20px; color: var(--text-input) !important; font-weight: 800; width: 100%; outline: none; transition: 0.2s; box-shadow: inset 0 6px 10px rgba(0,0,0,0.15); }
+  .input-carved:focus { border-color: var(--accent-yellow) !important; }
+  .hidden { display: none !important; }
+</style>
+
+<div style="padding: 20px;">
+  <div id="view-info" style="text-align: center;">
+    <div style="font-size: 80px; margin-bottom: 20px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.2));">🎪</div>
+    <h1 style="font-family: 'Fredoka', sans-serif; font-size: 2.5rem; line-height: 1.2; margin-bottom: 15px;">{{t.titleInfo}}</h1>
+    <p style="font-weight: 800; font-size: 1rem; opacity: 0.8;">{{t.descInfo}}</p>
+  </div>
+
+  <div id="view-app" class="hidden">
+
+    <div id="view-app-empty" style="text-align: center; margin-top: 40px;">
+      <h2 style="font-family: 'Fredoka', sans-serif; font-size: 1.2rem; margin-bottom: 20px;">🖼️ {{t.canvasTitle}}</h2>
+      <div class="upload-zone">
+        <input type="file" id="file-input-main" accept="image/*">
+        <div style="font-size: 50px; margin-bottom: 15px; opacity: 0.8;">👇</div>
+        <span style="font-weight: 900; font-size: 14px;">{{t.uploadHint}}</span>
+      </div>
+    </div>
+
+    <div id="view-app-canvas" class="full-canvas-view hidden">
+      <label class="canvas-badge">
+        🔄 {{t.changeHint}} <input type="file" id="file-input-change" accept="image/*">
+      </label>
+      <div id="zoom-container"><img id="canvas-img" src="" alt="Canvas"></div>
+    </div>
+
+    <div id="view-form" class="gummy-board hidden" style="border-color: var(--accent-yellow);">
+      <h2 style="font-family: 'Fredoka', sans-serif; font-size: 1.2rem; margin-bottom: 15px;">📝 {{t.inputDataTitle}}</h2>
+      <input type="text" id="input-data" class="input-carved" placeholder="{{t.placeholder}}">
+    </div>
+  </div>
+</div>
+2. i18n.json (Kamus Teks)
+JSON
+{
+  "id": {
+    "appName": "GUMMY", "appNameHl": "TEMPLATE", "home": "INFO", "tools": "WORKSPACE",
+    "titleInfo": "INFORMASI APLIKASI", "descInfo": "Blueprint Final Triad API dengan DOM Manipulation, Zoom, Drag Pan, dan Tema Gummy V5.3.",
+    "canvasTitle": "KANVAS KOSONG", "uploadHint": "Tap / Drop Gambar di Sini", "changeHint": "GANTI GAMBAR",
+    "inputDataTitle": "PENGATURAN APP", "placeholder": "Ketik di sini...",
+    "actionAdd": "TAMBAH", "actionProcess": "EKSEKUSI", "actionSearch": "CARI",
+    "actionShare": "BAGIKAN", "actionDownload": "UNDUH", "actionSettings": "PENGATURAN", "actionClear": "BERSIHKAN",
+    "actionCancel": "BATAL", "btnSave": "SIMPAN",
+    "msgExecuting": "Mengeksekusi sistem...", "msgExecSuccess": "Berhasil dieksekusi!", "msgCleared": "Kanvas berhasil dibersihkan!", "msgSaved": "Data Tersimpan!",
+    "dialogOk": "OKE PAHAM", "dialogOops": "OOPS!", "dialogMantap": "MANTAP!", "dialogWait": "TUNGGU BENTAR...",
+    "side_assets": "ASSET", "side_text": "TEKS", "side_shapes": "SHAPE", "side_uploads": "UNGGAH"
+  },
+  "en": {
+    "appName": "GUMMY", "appNameHl": "TEMPLATE", "home": "INFO", "tools": "WORKSPACE",
+    "titleInfo": "APP INFORMATION", "descInfo": "Final Triad API Blueprint with DOM Manipulation, Zoom, Drag Pan, and Gummy V5.3 Theme.",
+    "canvasTitle": "EMPTY CANVAS", "uploadHint": "Tap / Drop Image Here", "changeHint": "CHANGE IMAGE",
+    "inputDataTitle": "APP SETTINGS", "placeholder": "Type here...",
+    "actionAdd": "ADD", "actionProcess": "EXECUTE", "actionSearch": "SEARCH",
+    "actionShare": "SHARE", "actionDownload": "DOWNLOAD", "actionSettings": "SETTINGS", "actionClear": "CLEAR",
+    "actionCancel": "CANCEL", "btnSave": "SAVE",
+    "msgExecuting": "Executing system...", "msgExecSuccess": "Execution successful!", "msgCleared": "Canvas cleared!", "msgSaved": "Data Saved!",
+    "dialogOk": "UNDERSTOOD", "dialogOops": "OOPS!", "dialogMantap": "AWESOME!", "dialogWait": "PLEASE WAIT...",
+    "side_assets": "ASSETS", "side_text": "TEXT", "side_shapes": "SHAPES", "side_uploads": "UPLOADS"
+  }
+}
+3. logic.js (State, Bridge OS, dan Behavior)
+JavaScript
+module.exports = {
+  state: { tab: 'info', form: false, zoom: 1, panX: 0, panY: 0, isDragging: false, startX: 0, startY: 0, img: null },
+  sys: null,
+
+  // 1. Deklarasi Menu untuk disetorkan ke OS
+  menus: {
+    sidebar: [
+      { id: 'side-assets', icon: '🗂️', labelKey: 'side_assets', active: true },
+      { id: 'side-text', icon: '📝', labelKey: 'side_text' },
+      { id: 'side-shapes', icon: '🔲', labelKey: 'side_shapes' },
+      { id: 'side-uploads', icon: '☁️', labelKey: 'side_uploads' }
+    ],
+    mainDock: [
+      { id: 'tab-info', icon: '💡', labelKey: 'home', active: true },
+      { id: 'tab-app', icon: '🚀', labelKey: 'tools' }
+    ],
+    actionDock: [] // Diisi dinamis oleh Logic nanti
+  },
+
+  mount(sys) {
+    this.sys = sys;
+    this.bindEvents();
+    this.updateView();
+  },
+
+  unmount() { this.sys.root.innerHTML = ''; },
+  find(selector) { return this.sys.root.querySelector(selector); },
+
+  // 2. Pusat Kontrol Semua Klik dari OS Bridge (Dock & Sidebar)
+  onMenuAction(actionId) {
+    const t = this.sys.t;
+
+    // Handle Tabs
+    if (actionId === 'tab-info') { this.state.tab = 'info'; this.state.form = false; this.updateView(); }
+    if (actionId === 'tab-app') { this.state.tab = 'app'; this.updateView(); }
+
+    // Handle Sidebar
+    if (actionId.startsWith('side-')) { this.sys.setSide(actionId); this.sys.toast('Sidebar: ' + actionId); }
+
+    // Handle Action Dock
+    if (actionId === 'act-settings') { this.state.form = true; this.updateView(); }
+    if (actionId === 'act-cancel') { this.state.form = false; this.updateView(); }
+    if (actionId === 'act-save') { this.sys.toast(t.msgSaved, 'success'); this.state.form = false; this.updateView(); }
+    if (actionId === 'act-process') { this.sys.toast(t.msgExecuting, 'loading'); setTimeout(() => this.sys.toast(t.msgExecSuccess, 'success'), 1500); }
+    if (actionId === 'act-clear') {
+        if(!this.state.img) return this.sys.toast('Kanvas Kosong!', 'error');
+        this.state.img = null; this.state.zoom = 1; this.state.panX = 0; this.state.panY = 0;
+        this.applyTransform(); this.updateView(); this.sys.toast(t.msgCleared, 'success');
+    }
+  },
+
+  bindEvents() {
+    const f = (s) => this.find(s);
+
+    // Upload Handler
+    const handleImg = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            this.state.img = ev.target.result;
+            const canvasImg = f('#canvas-img');
+            if(canvasImg) canvasImg.src = this.state.img;
+            this.state.zoom = 1; this.state.panX = 0; this.state.panY = 0;
+            this.applyTransform(); this.updateView();
+        };
+        reader.readAsDataURL(file);
+    };
+    if(f('#file-input-main')) f('#file-input-main').onchange = handleImg;
+    if(f('#file-input-change')) f('#file-input-change').onchange = handleImg;
+
+    // Zoom & Pan Engine (Sama seperti sebelumnya)
+    const workspace = f('#view-app-canvas');
+    if(workspace) {
+        workspace.addEventListener('wheel', e => { e.preventDefault(); this.state.zoom = Math.max(0.1, Math.min(this.state.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 10)); this.applyTransform(); }, { passive: false });
+        workspace.addEventListener('mousedown', e => { this.state.isDragging = true; this.state.startX = e.clientX - this.state.panX; this.state.startY = e.clientY - this.state.panY; });
+        window.addEventListener('mouseup', () => this.state.isDragging = false);
+        window.addEventListener('mousemove', e => { if(!this.state.isDragging) return; this.state.panX = e.clientX - this.state.startX; this.state.panY = e.clientY - this.state.startY; this.applyTransform(); });
+    }
+  },
+
+  updateView() {
+    const f = (s) => this.find(s);
+
+    // Reset View
+    ['#view-info', '#view-app', '#view-app-empty', '#view-app-canvas', '#view-form'].forEach(id => { if(f(id)) f(id).classList.add('hidden'); });
+
+    // OS Bridge: Beritahu OS Tab mana yang aktif
+    this.sys.setNav(this.state.tab === 'info' ? 'tab-info' : 'tab-app');
+
+    // OS Bridge: Beritahu OS Action Menu apa yang harus ditampilkan
+    if (this.state.tab === 'info') {
+        if(f('#view-info')) f('#view-info').classList.remove('hidden');
+        this.sys.setActionDock([]); // Kosongkan action dock
+    } else {
+        if(f('#view-app')) f('#view-app').classList.remove('hidden');
+
+        if (this.state.form) {
+            if(f('#view-form')) f('#view-form').classList.remove('hidden');
+            // Menu Mode Form
+            this.sys.setActionDock([
+                { id: 'act-cancel', icon: '✖️', labelKey: 'actionCancel', color: 'danger' },
+                { id: 'act-save', icon: '💾', labelKey: 'btnSave', color: 'blue' }
+            ]);
+        } else {
+            // Menu Mode Default App
+            this.sys.setActionDock([
+                { id: 'act-clear', icon: '🗑️', labelKey: 'actionClear', color: 'danger' },
+                { id: 'act-add', icon: '➕', labelKey: 'actionAdd', color: 'yellow' },
+                { id: 'act-process', icon: '⚡', labelKey: 'actionProcess', color: 'green' },
+                { id: 'act-search', icon: '🔍', labelKey: 'actionSearch', color: 'blue' },
+                { id: 'act-settings', icon: '⚙️', labelKey: 'actionSettings', color: 'gray' }
+            ]);
+
+            if (this.state.img) {
+                if(f('#view-app-canvas')) f('#view-app-canvas').classList.remove('hidden');
+            } else {
+                if(f('#view-app-empty')) f('#view-app-empty').classList.remove('hidden');
+            }
+        }
+    }
+  },
+
+  applyTransform() {
+      const zc = this.find('#zoom-container');
+      if (zc) zc.style.transform = `translate(${this.state.panX}px, ${this.state.panY}px) scale(${this.state.zoom})`;
+  }
+};
+
+________________________________________
+ 
+AGAR LO PAHAM ARSITEKTURNYA INI FILE YANG REDER APP
+
+<template>
+  <div class="os-root" :data-theme="currentTheme">
+    <div class="os-bg">
+        <div v-if="currentTheme !== 'light'" class="cyberpunk-scene">
+            <div class="cyber-grid-floor"></div>
+            <div class="cyber-horizon-glow"></div>
+            <div class="cyber-vignette"></div>
+        </div>
+        <div v-else class="light-scene">
+            <div class="canvas-texture"></div>
+            <div class="paint-blobs">
+                <div class="blob blue-paint"></div>
+                <div class="blob gold-paint"></div>
+                <div class="blob white-wash"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="os-body-wrapper">
+      <div class="os-body">
+          <div class="os-main">
+              <div class="os-viewport">
+                    <div class="os-world">
+                      <div class="single-app-wrapper full-screen-mode">
+
+                          <div class="app-content-layer custom-scroll" :class="{'triad-active': appMenus}" v-show="!booting && !error && !deviceMismatch">
+
+                              <header v-if="appMenus" class="triad-top-bar">
+                                  <div style="display: flex; align-items: center; gap: 15px;">
+                                      <h1 class="font-display text-xl font-black italic" style="text-shadow: 0 2px 4px rgba(0,0,0,0.1); margin:0;">
+                                          {{ appDict.appName }}<span class="text-brand">{{ appDict.appNameHl }}</span>
+                                      </h1>
+                                  </div>
+                                  <div class="flex-actions">
+                                      <button @click="retryBoot" class="btn-icon bouncy-fx" style="width:40px; height:40px; font-size:14px;" title="Reload State">🔄</button>
+                                  </div>
+                              </header>
+
+                              <div :class="appMenus ? 'triad-layout-body' : 'legacy-body'">
+
+                                  <aside v-if="appMenus?.sidebar?.length" class="triad-sidebar custom-scrollbar">
+                                      <button v-for="btn in appMenus.sidebar" :key="btn.id"
+                                              class="side-btn" :class="{ active: activeSide === btn.id }"
+                                              @click="handleMenuClick(btn.id)"
+                                              :title="appDict[btn.labelKey]">
+                                          <div class="side-icon">{{ btn.icon }}</div>
+                                          <span>{{ appDict[btn.labelKey] }}</span>
+                                      </button>
+                                  </aside>
+
+                                  <div :class="appMenus ? 'triad-workspace' : 'legacy-workspace'">
+
+                                      <div v-show="appType === 'native'"
+                                           id="app-native-root"
+                                           ref="nativeRoot"
+                                           class="native-root" :class="{'triad-scroll': appMenus}">
+                                      </div>
+
+                                      <iframe v-if="appType === 'iframe'" :src="appUrl" class="iframe-full" frameborder="0"></iframe>
+
+                                      <EngineRenderer
+                                          v-if="appType === 'logic'"
+                                          :schema="uiSchema"
+                                          :initial-state="savedInternalState"
+                                          @state-change="handleInternalStateSave"
+                                          @action="handleAppAction"
+                                      />
+
+                                      <div v-if="appMenus" class="triad-dock-wrapper">
+                                          <div v-if="appMenus?.actionDock?.length" class="action-dock-outer bouncy-up">
+                                              <button class="btn-icon bouncy-fx" style="background: var(--bg-panel); color: var(--text-main);" @click="scrollDock(-100)">❮</button>
+
+                                              <div class="action-dock-inner custom-scrollbar" ref="actionDockRef">
+                                                  <button v-for="btn in appMenus.actionDock" :key="btn.id"
+                                                          @click="handleMenuClick(btn.id)"
+                                                          class="btn-icon bouncy-fx" :class="btn.color ? 'btn-' + btn.color : ''"
+                                                          :title="appDict[btn.labelKey]">
+                                                      {{ btn.icon }}
+                                                  </button>
+                                              </div>
+
+                                              <button class="btn-icon bouncy-fx" style="background: var(--bg-panel); color: var(--text-main);" @click="scrollDock(100)">❯</button>
+                                          </div>
+
+                                          <nav v-if="appMenus?.mainDock?.length" class="main-dock">
+                                              <button v-for="btn in appMenus.mainDock" :key="btn.id"
+                                                      class="bouncy-fx" :class="{ active: activeNav === btn.id }"
+                                                      @click="handleMenuClick(btn.id)">
+                                                  <div class="nav-icon">{{ btn.icon }}</div>
+                                                  <span>{{ appDict[btn.labelKey] }}</span>
+                                              </button>
+                                          </nav>
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <Transition name="sys-pop">
+                              <div v-if="customPopup.active" class="triad-popup-overlay">
+                                  <div class="triad-popup-card universal-green-pop" :style="{ width: customPopup.width }">
+                                      <div class="triad-popup-header">
+                                          <span>{{ customPopup.title }}</span>
+                                          <button @click="closeCustomPopup" class="btn-pop-close">✖</button>
+                                      </div>
+                                      <div id="triad-popup-body" class="triad-popup-content custom-scroll">
+                                          </div>
+                                  </div>
+                              </div>
+                          </Transition>
+
+                          <Transition name="fade">
+                            <div v-if="booting" class="state-overlay skeleton-boot">
+                                <div class="skeleton-header"></div>
+                                <div class="skeleton-body">
+                                    <div class="skeleton-row w-75"></div>
+                                    <div class="skeleton-row w-100"></div>
+                                    <div class="skeleton-row w-50"></div>
+                                </div>
+                                <div class="loading-text">
+                                    <div class="spinner-sm mr-2"></div> System Initializing...
+                                </div>
+                            </div>
+                          </Transition>
+
+                          <div v-if="error" class="state-overlay error">
+                              <div class="err-icon">⚠️</div>
+                              <div class="err-msg">{{ error }}</div>
+                              <div class="err-sub">Check console for details</div>
+                              <div class="flex gap-2 mt-4">
+                                <button @click="retryBoot" class="sys-btn secondary">Retry</button>
+                                <button @click="goHome" class="sys-btn primary">EXIT</button>
+                              </div>
+                          </div>
+                      </div>
+                    </div>
+              </div>
+          </div>
+      </div>
+    </div>
+
+    <Transition name="sys-pop">
+      <div v-if="sysModal.active" class="sys-modal-backdrop" @mousedown.self="shakeModal">
+        <div class="sys-modal-card universal-green-pop" :class="{ 'shake': sysModal.shaking }">
+          <div class="sys-modal-header"><span>{{ sysModal.title }}</span></div>
+          <div class="sys-modal-body"><p>{{ sysModal.message }}</p></div>
+          <div class="sys-modal-footer">
+            <button v-if="sysModal.type === 'confirm'" @click="resolveModal(false)" class="sys-btn secondary-dark">Cancel</button>
+            <button @click="resolveModal(true)" class="sys-btn primary-dark">OK</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted, onUnmounted, watch, nextTick, defineAsyncComponent, shallowRef, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAppStore } from '@/store/apps';
+import { useAuthStore } from '@/store/auth';
+import { useVariablesStore } from '@/store/variables';
+import { useUiStore } from '@/store/ui';
+
+const EngineRenderer = defineAsyncComponent(() => import('@/components/engine/EngineRenderer.vue'));
+const props = defineProps(['appSlug']);
+const router = useRouter();
+const appStore = useAppStore();
+const authStore = useAuthStore();
+const varStore = useVariablesStore();
+const uiStore = useUiStore();
+
+const booting = ref(true);
+const error = ref(null);
+const currentTheme = ref('dark');
+const deviceMismatch = ref(false);
+
+// [DIBUANG: State khusus mobile]
+// const isMobile = ref(false);
+// const scale = ref(1.0);
+
+const actionDockRef = ref(null);
+const appMenus = ref(null);
+const appDict = ref({});
+const activeNav = ref('');
+const activeSide = ref('');
+
+// FITUR ORIGINAL
+const showMissingVarPrompt = ref(false);
+const missingKeysInfo = ref([]);
+const tempInputValues = ref({});
+
+const ads = reactive({
+    top: { title: 'Loading...', link: '#', cta: '' },
+    bottom: { title: 'Loading...', link: '#', cta: '' }
+});
+
+const targetApp = ref(null);
+const appType = ref('native');
+const appUrl = ref('');
+const nativeRoot = ref(null);
+const appLogic = shallowRef(null);
+const savedInternalState = ref(null);
+const uiSchema = ref([]);
+
+const customPopup = reactive({ active: false, title: '', width: '400px', content: '', onMounted: null });
+
+const sysModal = reactive({ active: false, shaking: false, title: '', message: '', type: 'alert', resolve: null });
+const triggerModal = (message, title='System', type='alert') => new Promise(resolve => { sysModal.active = true; sysModal.title = title; sysModal.message = message; sysModal.type = type; sysModal.resolve = resolve; });
+const resolveModal = (res) => { sysModal.active = false; if(sysModal.resolve) sysModal.resolve(res); };
+const shakeModal = () => { sysModal.shaking = true; setTimeout(() => sysModal.shaking = false, 300); };
+
+const goHome = () => router.push('/');
+const retryBoot = () => {
+    error.value = null; deviceMismatch.value = false; appMenus.value = null; customPopup.active = false;
+    cleanupApp(); loadRegistry();
+};
+
+/* [DIBUANG: Fungsi Zoom & Pan (Gesture) Mobile, sekarang di-handle Vanilla JS di logic.js aplikasinya]
+let lastPinchDist = 0;
+const startTouch = (e) => { if (e.touches.length === 2) lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); };
+const handleTouchMove = (e) => {
+    if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (lastPinchDist > 0) scale.value = Math.min(Math.max(scale.value * (dist / lastPinchDist), 0.5), 3.0);
+        lastPinchDist = dist;
+    }
+};
+const endTouch = () => { lastPinchDist = 0; };
+const wrapperStyle = computed(() => ({ transform: `scale(${scale.value})` }));
+*/
+
+const cleanupApp = () => {
+    booting.value = true;
+    if(appLogic.value?.unmount) { try { appLogic.value.unmount(); } catch(e) { console.warn(e); } }
+    appLogic.value = null;
+    if(nativeRoot.value) nativeRoot.value.innerHTML = '';
+};
+
+const handleMenuClick = (actionId) => {
+    if (appLogic.value && typeof appLogic.value.onMenuAction === 'function') {
+        appLogic.value.onMenuAction(actionId);
+    }
+};
+
+const scrollDock = (amount) => {
+    if (actionDockRef.value) actionDockRef.value.scrollBy({ left: amount, behavior: 'smooth' });
+};
+
+const closeCustomPopup = () => { customPopup.active = false; customPopup.content = ''; };
+const openCustomPopup = async (config) => {
+    customPopup.title = config.title || 'App Dialog';
+    customPopup.width = config.width || '400px';
+    customPopup.active = true;
+    await nextTick();
+    const container = document.getElementById('triad-popup-body');
+    if (container) {
+        container.innerHTML = config.content;
+        if (typeof config.onMounted === 'function') config.onMounted(container);
+    }
+};
+
+const loadAds = async () => {
+    try {
+        const r = await fetch(`/store/ads.json?v=${Date.now()}`);
+        if(r.ok) {
+            const data = await r.json();
+            const list = Array.isArray(data.ads) ? data.ads : [];
+            if(list.length > 0) {
+                ads.top = list[Math.floor(Math.random() * list.length)];
+                ads.bottom = list[Math.floor(Math.random() * list.length)];
+            }
+        }
+    } catch(e) {}
+};
+
+const openAd = (ad) => { if(ad && ad.link && ad.link !== '#') window.open(ad.link, '_blank'); };
+
+const loadRegistry = async () => {
+    try {
+        if (appStore.installedApps.length === 0) await appStore.fetchInstalledApps();
+        targetApp.value = appStore.installedApps.find(a => a.slug === props.appSlug || a.id === props.appSlug);
+
+        if (!targetApp.value && props.appSlug === 'gummy-template') {
+             targetApp.value = { id: 'gummy-template', slug: 'gummy-template', desktop: 'yes', android: 'yes', name: 'Gummy Template' };
+        }
+
+        if (!targetApp.value) {
+            error.value = `App "${props.appSlug}" not found on Desktop.`;
+            booting.value = false;
+        } else {
+            if (targetApp.value.desktop === 'no') {
+                deviceMismatch.value = true;
+                booting.value = false;
+                return;
+            }
+            bootApp();
+        }
+    } catch(e) { error.value = e.message; booting.value = false; }
+};
+
+const nativeBridge = {
+    copy: (text) => {
+        /* [DIBUANG: Cek Android Native karena ini khusus Dekstop]
+        if (window.Android && typeof window.Android.copyText === 'function') {
+            window.Android.copyText(text);
+            triggerModal("Copied to clipboard!", "Success");
+        } else */
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => triggerModal("Copied to clipboard!", "Success"));
+        }
+    },
+    download: (filename, base64Data) => {
+        /* [DIBUANG: Cek Android Native karena ini khusus Dekstop]
+        if (window.Android && typeof window.Android.saveFile === 'function') {
+            window.Android.saveFile(filename, base64Data);
+        } else */
+        {
+            const a = document.createElement('a'); a.href = base64Data; a.download = filename; a.click();
+        }
+    }
+};
+
+const bootAppLegacy = async (basePath) => {
+    appUrl.value = `${basePath}/logic.js`.replace(/([^:]\/)\/+/g, "$1");
+    try {
+        const res = await fetch(appUrl.value + `?t=${Date.now()}`);
+        if (!res.ok) throw new Error("Fallback failed.");
+        const scriptContent = await res.text();
+        appType.value = 'native'; await nextTick();
+        const sys = {
+            root: nativeRoot.value, path: basePath, close: goHome,
+            toast: (msg) => triggerModal(msg, 'Toast'),
+            alert: async (msg, title) => triggerModal(msg, title),
+            theme: currentTheme.value, reload: () => retryBoot(),
+            copy: nativeBridge.copy, download: nativeBridge.download,
+            variables: {
+                get: (name) => { const v = varStore.variables.find(v => v.name === name); return v ? v.value : null; },
+                save: async (name, value) => await varStore.saveVariable(name, { value, is_secret: true }),
+                getRequired: () => targetApp.value?.id ? appStore.getAppRequiredVars(targetApp.value.id) : [],
+                getLabel: (name) => appStore.getKeyLabel(name)
+            }
+        };
+        const instance = new Function('return (' + scriptContent.trim() + ')')();
+        if(instance && instance.mount) {
+            instance.mount(sys); appLogic.value = instance; booting.value = false;
+        }
+    } catch (e) {
+        appUrl.value = `${basePath}/index.html`.replace(/([^:]\/)\/+/g, "$1");
+        appType.value = 'iframe'; booting.value = false;
+    }
+};
+
+const bootApp = async () => {
+    booting.value = true;
+    let basePath = `/store/${targetApp.value.slug || targetApp.value.id}`;
+    try {
+        const resHtml = await fetch(`${basePath}/template.html?t=${Date.now()}`.replace(/([^:]\/)\/+/g, "$1"));
+        if (!resHtml.ok) return await bootAppLegacy(basePath);
+
+        const [resI18n, resLogic] = await Promise.all([
+            fetch(`${basePath}/i18n.json?t=${Date.now()}`.replace(/([^:]\/)\/+/g, "$1")),
+            fetch(`${basePath}/logic.js?t=${Date.now()}`.replace(/([^:]\/)\/+/g, "$1"))
+        ]);
+
+        const templateStr = await resHtml.text();
+        const appI18n = resI18n.ok ? await resI18n.json() : {};
+        const logicStr = await resLogic.text();
+
+        appType.value = 'native'; await nextTick();
+        const currentLang = uiStore.currentLang || 'en';
+        const dictionary = appI18n[currentLang] || appI18n['en'] || {};
+        appDict.value = dictionary;
+
+        let renderedHtml = templateStr.replace(/\{\{t\.([\w_]+)\}\}/g, (match, key) => dictionary[key] !== undefined ? dictionary[key] : match);
+        if(nativeRoot.value) nativeRoot.value.innerHTML = renderedHtml;
+
+        const sys = {
+            root: nativeRoot.value, path: basePath, close: goHome,
+            toast: (msg) => triggerModal(msg, 'Toast'),
+            alert: async (msg, title) => triggerModal(msg, title),
+            theme: currentTheme.value, lang: currentLang, t: dictionary,
+            reload: () => retryBoot(),
+            setNav: (id) => activeNav.value = id,
+            setSide: (id) => activeSide.value = id,
+            setActionDock: (actions) => { if(appMenus.value) appMenus.value.actionDock = actions; },
+            popup: openCustomPopup, closePopup: closeCustomPopup,
+            copy: nativeBridge.copy, download: nativeBridge.download,
+            variables: {
+                get: (name) => { const v = varStore.variables.find(v => v.name === name); return v ? v.value : null; },
+                save: async (name, value) => await varStore.saveVariable(name, { value, is_secret: true }),
+                getRequired: () => targetApp.value?.id ? appStore.getAppRequiredVars(targetApp.value.id) : [],
+                getLabel: (name) => appStore.getKeyLabel(name)
+            }
+        };
+
+        const moduleObj = { exports: {} };
+        const executeLogic = new Function('module', `module.exports = ${logicStr.replace(/module\.exports\s*=\s*/, '').trim().replace(/;$/, '')}`);
+        executeLogic(moduleObj);
+        const instance = moduleObj.exports;
+
+        if(instance && instance.mount) {
+            if (instance.menus) {
+                appMenus.value = instance.menus;
+                const defNav = instance.menus.mainDock?.find(m => m.active);
+                if (defNav) activeNav.value = defNav.id;
+            }
+            instance.mount(sys); appLogic.value = instance; booting.value = false;
+        }
+    } catch (e) { booting.value = false; error.value = e.message; }
+};
+
+watch(() => uiStore.currentLang, () => {
+    if (targetApp.value && !booting.value && appType.value === 'native') {
+        cleanupApp(); bootApp();
+    }
+});
+
+/* [DIBUANG: Deteksi otomatis environment Web Mobile / Android]
+const detectMobile = () => {
+    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    isMobile.value = isTouch || isMobileUA || window.innerWidth <= 768;
+};
+*/
+
+onMounted(() => {
+    // detectMobile(); // [DIBUANG]
+    loadRegistry(); loadAds();
+    const updateTheme = () => { currentTheme.value = document.documentElement.getAttribute('data-theme') || 'dark'; };
+    updateTheme();
+    new MutationObserver(updateTheme).observe(document.documentElement, { attributes: true });
+});
+</script>
+
+<style scoped>
+.iframe-full { width: 100%; height: 100%; border: none; display: block; background: transparent; }
+.os-root {
+    --bg-page: #050505; --text-main: #ffffff; --border: rgba(255, 255, 255, 0.1); --brand: #06b6d4; --card-bg: #1e1e23;
+    position: fixed; inset: 0; padding-top: 80px; z-index: 50; display: flex; flex-direction: column; background: var(--bg-page); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden;
+}
+.os-root[data-theme="light"] { --bg-page: #f8fafc; --text-main: #1e293b; --card-bg: #ffffff; }
+
+.os-body-wrapper, .os-body, .os-main, .os-viewport { flex: 1; display: flex; flex-direction: column; width: 100%; height: 100%; position: relative; overflow: hidden; }
+.os-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background: var(--bg-page); }
+.cyberpunk-scene { position: absolute; inset: 0; background: #020205; }
+.cyber-grid-floor { position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; background-image: linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 60px 60px; transform: rotateX(60deg); animation: grid-move 20s linear infinite; }
+.os-world { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+
+.single-app-wrapper.full-screen-mode {
+    width: 100%; height: 100%; max-width: 100vw; background: var(--card-bg); overflow: hidden; display: flex; flex-direction: column; border: none; margin: 0 auto;
+}
+
+.app-content-layer { flex: 1; position: relative; overflow-y: auto; width: 100%; display: flex; flex-direction: column; }
+.native-root { width: 100%; height: 100%; min-height: 300px; display: block; isolation: isolate; }
+
+/* TRIAD MODULAR BRIDGE */
+.triad-active {
+    --bg-panel: #1E293B; --text-main: #FFFFFF; --brand: #00BBF9; --border: #334155;
+    --accent-pink: #FF006E; --bubble-gloss: rgba(255,255,255,0.1);
+}
+.os-root[data-theme="light"] .triad-active {
+    --bg-panel: #FFFFFF; --text-main: #1E1B4B; --border: #CBD5E1; --bubble-gloss: rgba(0,0,0,0.05);
+}
+
+.triad-top-bar { height: 65px; background: var(--bg-panel); border-bottom: 4px solid var(--border); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; flex-shrink: 0; z-index: 50; }
+.triad-layout-body { flex: 1; display: flex; position: relative; overflow: hidden; }
+.triad-sidebar { width: 80px; background: var(--bg-panel); border-right: 4px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; gap: 5px; flex-shrink: 0; overflow-y: auto; }
+
+.side-btn { background: none; border: none; color: #94A3B8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 10px 0; width: 100%; cursor: pointer; font-size: 10px; font-weight: 800; border-left: 4px solid transparent; }
+.side-btn.active { color: var(--brand); border-left: 4px solid var(--brand); background: rgba(0,0,0,0.2); }
+.side-icon { font-size: 22px; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 1rem; }
+.side-btn.active .side-icon { background: var(--brand); color: #1E1B4B; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2), inset 0 4px 0 var(--bubble-gloss); }
+
+.triad-workspace { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.triad-scroll { flex: 1; overflow-y: auto; }
+
+.triad-dock-wrapper { position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50; display: flex; flex-direction: column; align-items: center; }
+.action-dock-outer { width: 100%; background: var(--bg-panel); border-top: 4px solid var(--border); padding: 10px 15px; display: flex; align-items: center; gap: 10px; }
+.action-dock-inner { flex: 1; display: flex; gap: 15px; overflow-x: auto; padding: 5px 0; scrollbar-width: none; }
+
+.main-dock { height: 65px; width: 100%; background: var(--bg-panel); border-top: 4px solid var(--border); display: flex; justify-content: space-around; align-items: center; }
+.main-dock button { background: none; border: none; color: #94A3B8; font-size: 10px; font-weight: 800; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
+.main-dock button.active { color: var(--brand); }
+.main-dock button.active .nav-icon { background: var(--brand); color: #1E1B4B; padding: 5px 20px; border-radius: 2rem; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2); }
+.nav-icon { font-size: 18px; padding: 5px 20px; border-radius: 2rem; }
+
+/* POPUP DYNAMIC (UNIVERSAL ANDROID GREEN) */
+.triad-popup-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 200000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.universal-green-pop {
+    background: #3DDC84 !important; /* HIJAU ANDROID */
+    border: 4px solid #1E1B4B !important;
+    border-radius: 30px !important;
+    box-shadow: 0 20px 0 #000 !important;
+    color: #1E1B4B !important; /* TEKS HITAM INDIGO BIAR TAJAM */
+}
+.triad-popup-card { display: flex; flex-direction: column; overflow: hidden; }
+.triad-popup-header { padding: 15px 25px; border-bottom: 3px solid rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; font-family: 'Fredoka', sans-serif; font-weight: 900; text-transform: uppercase; }
+.btn-pop-close { width: 35px; height: 35px; border-radius: 50%; border: none; background: #FF006E; color: white; font-weight: 900; cursor: pointer; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2); }
+.triad-popup-content { padding: 25px; max-height: 70vh; overflow-y: auto; font-weight: 800; }
+
+/* MODAL CENTERING (UNIVERSAL GREEN) */
+.sys-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 300000; display: flex; align-items: center; justify-content: center; }
+.sys-modal-card { width: 320px; padding: 30px; text-align: center; }
+.sys-modal-header { font-weight: 900; margin-bottom: 10px; font-family: 'Fredoka', sans-serif; }
+.sys-modal-body { font-weight: 800; margin-bottom: 20px; }
+.sys-modal-footer { display: flex; gap: 10px; justify-content: center; }
+
+.btn-icon { background: var(--brand); color: #1E1B4B; border: 3px solid var(--border); border-bottom: 5px solid rgba(0,0,0,0.3); border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: inset 0 4px 0 var(--bubble-gloss); }
+.bouncy-fx:active { transform: translateY(4px); border-bottom-width: 2px; }
+.btn-danger { background: #FF006E; color: #FFF; }
+.btn-yellow { background: #FEE440; } .btn-green { background: #3DDC84; } .btn-blue { background: #00BBF9; }
+
+.sys-btn { padding: 12px 25px; border-radius: 50px; font-weight: 900; border: none; cursor: pointer; font-family: 'Fredoka', sans-serif; }
+.sys-btn.primary-dark { background: #1E1B4B; color: #FFFFFF; }
+.sys-btn.secondary-dark { background: rgba(0,0,0,0.1); color: #1E1B4B; border: 2px solid #1E1B4B; }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.sys-pop-enter-active { animation: bouncyIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+@keyframes bouncyIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes grid-move { 0% { background-position: 0 0; } 100% { background-position: 0 50px; } }
+</style>
+
+
+INI VERSI MOBILENYA
+
+<template>
+  <div class="os-root" :data-theme="currentTheme">
+
+    <div class="os-bg">
+        <div v-if="currentTheme !== 'light'" class="cyberpunk-scene">
+            <div class="cyber-grid-floor"></div>
+            <div class="cyber-horizon-glow"></div>
+            <div class="cyber-vignette"></div>
+        </div>
+        <div v-else class="light-scene">
+            <div class="canvas-texture"></div>
+            <div class="paint-blobs">
+                <div class="blob blue-paint"></div>
+                <div class="blob gold-paint"></div>
+                <div class="blob white-wash"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="os-body-wrapper">
+      <div class="os-body">
+          <div class="os-main">
+              <div class="os-viewport">
+                    <div class="os-world"
+                         @touchstart="startTouch"
+                         @touchmove="handleTouchMove"
+                         @touchend="endTouch">
+
+                      <div class="single-app-wrapper mobile-full"
+                           :style="wrapperStyle">
+
+                          <div class="app-content-layer custom-scroll" :class="{'triad-active': appMenus}" v-show="!booting && !error">
+
+                              <header v-if="appMenus" class="triad-top-bar">
+                                  <div style="display: flex; align-items: center; gap: 15px;">
+                                      <button v-if="appMenus?.sidebar?.length" @click="isSidebarOpen = !isSidebarOpen" class="btn-icon bouncy-fx" style="width:40px; height:40px; font-size:16px;">☰</button>
+                                      <h1 class="font-display text-lg font-black italic" style="margin:0;">
+                                          {{ appDict.appName }}<span class="text-brand">{{ appDict.appNameHl }}</span>
+                                      </h1>
+                                  </div>
+                                  <div class="flex-actions">
+                                      <button @click="retryBoot" class="btn-icon bouncy-fx" style="width:40px; height:40px; font-size:14px;">🔄</button>
+                                  </div>
+                              </header>
+
+                              <div :class="appMenus ? 'triad-layout-body' : 'legacy-body'">
+
+                                  <div v-if="appMenus?.sidebar?.length" class="sidebar-backdrop" :class="{'hidden': !isSidebarOpen}" @click="isSidebarOpen = false"></div>
+                                  <aside v-if="appMenus?.sidebar?.length" class="triad-sidebar mobile-sidebar custom-scrollbar" :class="{'open': isSidebarOpen}">
+                                      <button v-for="btn in appMenus.sidebar" :key="btn.id"
+                                              class="side-btn" :class="{ active: activeSide === btn.id }"
+                                              @click="handleMenuClick(btn.id); isSidebarOpen = false"
+                                              :title="appDict[btn.labelKey]">
+                                          <div class="side-icon">{{ btn.icon }}</div>
+                                          <span>{{ appDict[btn.labelKey] }}</span>
+                                      </button>
+                                  </aside>
+
+                                  <div :class="appMenus ? 'triad-workspace' : 'legacy-workspace'">
+
+                                      <div v-show="appType === 'native'"
+                                           id="app-native-root"
+                                           ref="nativeRoot"
+                                           class="native-root" :class="{'triad-scroll': appMenus}">
+                                      </div>
+
+                                      <iframe v-if="appType === 'iframe'" :src="appUrl" class="iframe-full" frameborder="0"></iframe>
+
+                                      <EngineRenderer
+                                          v-if="appType === 'logic'"
+                                          :schema="uiSchema"
+                                          :initial-state="savedInternalState"
+                                          @state-change="handleInternalStateSave"
+                                          @action="handleAppAction"
+                                      />
+
+                                      <div v-if="appMenus" class="triad-dock-wrapper">
+                                          <div v-if="appMenus?.actionDock?.length" class="action-dock-outer bouncy-up">
+                                              <button class="btn-icon bouncy-fx" style="background: var(--bg-panel); color: var(--text-main); font-size:12px; width:35px; min-width:35px;" @click="scrollDock(-100)">❮</button>
+                                              <div class="action-dock-inner custom-scrollbar" ref="actionDockRef">
+                                                  <button v-for="btn in appMenus.actionDock" :key="btn.id"
+                                                          @click="handleMenuClick(btn.id)"
+                                                          class="btn-icon bouncy-fx" :class="btn.color ? 'btn-' + btn.color : ''"
+                                                          :title="appDict[btn.labelKey]">
+                                                      {{ btn.icon }}
+                                                  </button>
+                                              </div>
+                                              <button class="btn-icon bouncy-fx" style="background: var(--bg-panel); color: var(--text-main); font-size:12px; width:35px; min-width:35px;" @click="scrollDock(100)">❯</button>
+                                          </div>
+
+                                          <nav v-if="appMenus?.mainDock?.length" class="main-dock">
+                                              <button v-for="btn in appMenus.mainDock" :key="btn.id"
+                                                      class="bouncy-fx" :class="{ active: activeNav === btn.id }"
+                                                      @click="handleMenuClick(btn.id)">
+                                                  <div class="nav-icon">{{ btn.icon }}</div>
+                                                  <span>{{ appDict[btn.labelKey] }}</span>
+                                              </button>
+                                          </nav>
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <Transition name="sys-pop">
+                              <div v-if="customPopup.active" class="triad-popup-overlay">
+                                  <div class="triad-popup-card universal-green-pop" :style="{ width: isMobile ? '90%' : customPopup.width }">
+                                      <div class="triad-popup-header">
+                                          <span>{{ customPopup.title }}</span>
+                                          <button @click="closeCustomPopup" class="btn-pop-close">✖</button>
+                                      </div>
+                                      <div id="triad-popup-body" class="triad-popup-content custom-scroll">
+                                          </div>
+                                  </div>
+                              </div>
+                          </Transition>
+
+                          <Transition name="fade">
+                            <div v-if="booting" class="state-overlay skeleton-boot">
+                                <div class="skeleton-header"></div>
+                                <div class="skeleton-body">
+                                    <div class="skeleton-row w-75"></div>
+                                    <div class="skeleton-row w-100"></div>
+                                    <div class="skeleton-row w-50"></div>
+                                </div>
+                                <div class="loading-text">
+                                    <div class="spinner-sm mr-2"></div> System Initializing...
+                                </div>
+                            </div>
+                          </Transition>
+
+                          <div v-if="error" class="state-overlay error">
+                              <div class="err-icon">⚠️</div>
+                              <div class="err-msg">{{ error }}</div>
+                              <div class="err-sub">Check console for details</div>
+                              <div class="flex gap-2 mt-4">
+                                <button @click="retryBoot" class="sys-btn secondary">Retry</button>
+                                <button @click="goHome" class="sys-btn primary">EXIT</button>
+                              </div>
+                          </div>
+                      </div>
+                    </div>
+              </div>
+          </div>
+      </div>
+    </div>
+
+    <Transition name="sys-pop">
+      <div v-if="sysModal.active" class="sys-modal-backdrop" @mousedown.self="shakeModal">
+        <div class="sys-modal-card universal-green-pop" :class="{ 'shake': sysModal.shaking }">
+          <div class="sys-modal-header"><span>{{ sysModal.title }}</span></div>
+          <div class="sys-modal-body"><p>{{ sysModal.message }}</p></div>
+          <div class="sys-modal-footer">
+            <button v-if="sysModal.type === 'confirm'" @click="resolveModal(false)" class="sys-btn secondary-dark">Cancel</button>
+            <button @click="resolveModal(true)" class="sys-btn primary-dark">OK</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted, onUnmounted, watch, nextTick, defineAsyncComponent, shallowRef, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAppStore } from '@/store/apps';
+import { useVariablesStore } from '@/store/variables';
+import { useUiStore } from '@/store/ui';
+
+const EngineRenderer = defineAsyncComponent(() => import('@/components/engine/EngineRenderer.vue'));
+const props = defineProps(['appSlug']);
+const router = useRouter();
+const appStore = useAppStore();
+const varStore = useVariablesStore();
+const uiStore = useUiStore();
+
+const booting = ref(true);
+const error = ref(null);
+const currentTheme = ref('dark');
+const isMobile = ref(true);
+const scale = ref(1.0);
+// const deviceMismatch = ref(false); // DIBUANG: Variable pengecekan desktop dihapus
+
+const actionDockRef = ref(null);
+const appMenus = ref(null);
+const appDict = ref({});
+const activeNav = ref('');
+const activeSide = ref('');
+const isSidebarOpen = ref(false);
+
+const ads = reactive({
+    top: { title: 'Loading...', link: '#', cta: '' },
+    bottom: { title: 'Loading...', link: '#', cta: '' }
+});
+
+const targetApp = ref(null);
+const appType = ref('native');
+const appUrl = ref('');
+const nativeRoot = ref(null);
+const appLogic = shallowRef(null);
+const savedInternalState = ref(null);
+const uiSchema = ref([]);
+
+const customPopup = reactive({ active: false, title: '', width: '400px', content: '', onMounted: null });
+
+const sysModal = reactive({ active: false, shaking: false, title: '', message: '', type: 'alert', resolve: null });
+const triggerModal = (message, title='System', type='alert') => new Promise(resolve => { sysModal.active = true; sysModal.title = title; sysModal.message = message; sysModal.type = type; sysModal.resolve = resolve; });
+const resolveModal = (res) => { sysModal.active = false; if(sysModal.resolve) sysModal.resolve(res); };
+const shakeModal = () => { sysModal.shaking = true; setTimeout(() => sysModal.shaking = false, 300); };
+
+const goHome = () => router.push('/');
+const retryBoot = () => {
+    error.value = null; appMenus.value = null; // DIBUANG: Reset deviceMismatch
+    cleanupApp(); loadRegistry();
+};
+
+let lastPinchDist = 0;
+const startTouch = (e) => { if (e.touches.length === 2) lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); };
+const handleTouchMove = (e) => {
+    if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (lastPinchDist > 0) scale.value = Math.min(Math.max(scale.value * (dist / lastPinchDist), 0.5), 3.0);
+        lastPinchDist = dist;
+    }
+};
+const endTouch = () => { lastPinchDist = 0; };
+
+const wrapperStyle = computed(() => ({ transform: `scale(${scale.value})` }));
+
+const cleanupApp = () => {
+    booting.value = true;
+    if(appLogic.value?.unmount) { try { appLogic.value.unmount(); } catch(e) { console.warn(e); } }
+    appLogic.value = null;
+    if(nativeRoot.value) nativeRoot.value.innerHTML = '';
+};
+
+const handleMenuClick = (actionId) => {
+    if (appLogic.value && typeof appLogic.value.onMenuAction === 'function') {
+        appLogic.value.onMenuAction(actionId);
+    }
+};
+
+const scrollDock = (amount) => {
+    if (actionDockRef.value) actionDockRef.value.scrollBy({ left: amount, behavior: 'smooth' });
+};
+
+// [ADDED] Logic buat buka tutup custom popup dari Desktop
+const closeCustomPopup = () => { customPopup.active = false; customPopup.content = ''; };
+const openCustomPopup = async (config) => {
+    customPopup.title = config.title || 'App Dialog';
+    customPopup.width = config.width || '400px';
+    customPopup.active = true;
+    await nextTick();
+    const container = document.getElementById('triad-popup-body');
+    if (container) {
+        container.innerHTML = config.content;
+        if (typeof config.onMounted === 'function') config.onMounted(container);
+    }
+};
+
+const loadAds = async () => {
+    try {
+        const r = await fetch(`/store/ads.json?v=${Date.now()}`);
+        if(r.ok) {
+            const data = await r.json();
+            const list = Array.isArray(data.ads) ? data.ads : [];
+            if(list.length > 0) {
+                ads.top = list[Math.floor(Math.random() * list.length)];
+                ads.bottom = list[Math.floor(Math.random() * list.length)];
+            }
+        }
+    } catch(e) {}
+};
+
+const openAd = (ad) => { if(ad && ad.link && ad.link !== '#') window.open(ad.link, '_blank'); };
+
+const loadRegistry = async () => {
+    try {
+        if (appStore.installedApps.length === 0) {
+            appStore.setDeviceType('mobile');
+            await appStore.fetchInstalledApps();
+        }
+
+        targetApp.value = appStore.getAppBySlug(props.appSlug);
+
+        if (!targetApp.value && props.appSlug === 'gummy-template') {
+             targetApp.value = { id: 'gummy-template', slug: 'gummy-template', desktop: 'yes', android: 'yes', name: 'Gummy Template' };
+        }
+
+        if (!targetApp.value) {
+            error.value = `App "${props.appSlug}" not found on Mobile.`;
+            booting.value = false;
+        } else {
+            // DIBUANG: Check Peringatan Desktop (deviceMismatch)
+            bootApp();
+        }
+    } catch(e) { error.value = e.message; booting.value = false; }
+};
+
+const nativeBridge = {
+    copy: (text) => {
+        if (window.Android && typeof window.Android.copyText === 'function') {
+            window.Android.copyText(text);
+            triggerModal("Copied to clipboard!", "Success");
+        } else if (navigator.clipboard) {
+            navigator.clipboard.writeText(text)
+                .then(() => triggerModal("Copied to clipboard!", "Success"))
+                .catch(() => nativeBridge.fallbackCopy(text));
+        } else {
+            nativeBridge.fallbackCopy(text);
+        }
+    },
+    fallbackCopy: (text) => {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.position = 'fixed';
+        el.style.top = '-9999px';
+        document.body.appendChild(el);
+        el.select();
+        try {
+            document.execCommand('copy');
+            triggerModal("Copied to clipboard!", "Success");
+        } catch (err) {
+            triggerModal("Failed to copy text.", "Error", "error");
+        }
+        document.body.removeChild(el);
+    },
+    download: (filename, base64Data) => {
+        if (window.Android && typeof window.Android.saveFile === 'function') {
+            window.Android.saveFile(filename, base64Data);
+        } else {
+            const a = document.createElement('a');
+            a.href = base64Data;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    }
+};
+
+const bootAppLegacy = async (basePath) => {
+    appUrl.value = `${basePath}/logic.js`.replace(/([^:]\/)\/+/g, "$1");
+    try {
+        const res = await fetch(appUrl.value + `?t=${Date.now()}`);
+        if (!res.ok) throw new Error(`Fallback failed: ${appUrl.value}`);
+
+        const scriptContent = await res.text();
+        if(scriptContent.includes('mount(sys)') || scriptContent.includes('mount:')) {
+            appType.value = 'native';
+            await nextTick();
+            const sys = {
+                root: nativeRoot.value, path: basePath, close: goHome,
+                toast: (msg) => triggerModal(msg, 'Toast'),
+                alert: async (msg, title) => triggerModal(msg, title),
+                theme: currentTheme.value,
+                reload: () => retryBoot(),
+                copy: nativeBridge.copy,
+                download: nativeBridge.download,
+                variables: {
+                    get: (name) => { const v = varStore.variables.find(v => v.name === name); return v ? v.value : null; },
+                    save: async (name, value) => await varStore.saveVariable(name, { value, is_secret: true }),
+                    getRequired: () => targetApp.value?.id ? appStore.getAppRequiredVars(targetApp.value.id) : [],
+                    getLabel: (name) => appStore.getKeyLabel(name)
+                }
+            };
+            const instance = new Function('return (' + scriptContent.trim() + ')')();
+            if(instance && instance.mount) {
+                instance.mount(sys);
+                appLogic.value = instance;
+                booting.value = false;
+            } else { throw new Error("Instance mount failed."); }
+        } else {
+             appUrl.value = `${basePath}/index.html`.replace(/([^:]\/)\/+/g, "$1");
+             appType.value = 'iframe';
+             booting.value = false;
+        }
+    } catch (e) { booting.value = false; error.value = e.message; }
+};
+
+const bootApp = async () => {
+    booting.value = true;
+    let basePath = `/store/${targetApp.value.slug || targetApp.value.id}`;
+
+    try {
+        const resHtml = await fetch(`${basePath}/template.html?t=${Date.now()}`.replace(/([^:]\/)\/+/g, "$1"));
+
+        if (!resHtml.ok) {
+            return await bootAppLegacy(basePath);
+        }
+
+        const [resI18n, resLogic] = await Promise.all([
+            fetch(`${basePath}/i18n.json?t=${Date.now()}`.replace(/([^:]\/)\/+/g, "$1")),
+            fetch(`${basePath}/logic.js?t=${Date.now()}`.replace(/([^:]\/)\/+/g, "$1"))
+        ]);
+
+        if (!resLogic.ok) throw new Error("Logic file is missing.");
+
+        const templateStr = await resHtml.text();
+        const appI18n = resI18n.ok ? await resI18n.json() : {};
+        const logicStr = await resLogic.text();
+
+        appType.value = 'native';
+        await nextTick();
+
+        const currentLang = uiStore.currentLang || 'en';
+        const dictionary = appI18n[currentLang] || appI18n['en'] || {};
+        appDict.value = dictionary;
+
+        let renderedHtml = templateStr;
+        renderedHtml = renderedHtml.replace(/\{\{t\.([\w_]+)\}\}/g, (match, key) => {
+            return dictionary[key] !== undefined ? dictionary[key] : match;
+        });
+
+        if(nativeRoot.value) {
+            nativeRoot.value.innerHTML = renderedHtml;
+        }
+
+        const sys = {
+            root: nativeRoot.value,
+            path: basePath,
+            close: goHome,
+            toast: (msg) => triggerModal(msg, 'Toast'),
+            alert: async (msg, title) => triggerModal(msg, title),
+            theme: currentTheme.value,
+            lang: currentLang,
+            t: dictionary,
+            reload: () => retryBoot(),
+            setNav: (id) => activeNav.value = id,
+            setSide: (id) => activeSide.value = id,
+            setActionDock: (actions) => { if(appMenus.value) appMenus.value.actionDock = actions; },
+            popup: openCustomPopup, closePopup: closeCustomPopup, // DI-BIND KE SYS BRIDGE
+            copy: nativeBridge.copy,
+            download: nativeBridge.download,
+            variables: {
+                get: (name) => { const v = varStore.variables.find(v => v.name === name); return v ? v.value : null; },
+                save: async (name, value) => await varStore.saveVariable(name, { value, is_secret: true }),
+                getRequired: () => targetApp.value?.id ? appStore.getAppRequiredVars(targetApp.value.id) : [],
+                getLabel: (name) => appStore.getKeyLabel(name)
+            }
+        };
+
+        let cleanLogic = logicStr.replace(/module\.exports\s*=\s*/, '').trim();
+        if (cleanLogic.endsWith(';')) cleanLogic = cleanLogic.slice(0, -1);
+
+        const moduleObj = { exports: {} };
+        const executeLogic = new Function('module', `module.exports = ${cleanLogic}`);
+        executeLogic(moduleObj);
+
+        const instance = moduleObj.exports;
+
+        if(instance && instance.mount) {
+            if (instance.menus) {
+                appMenus.value = instance.menus;
+                const defNav = instance.menus.mainDock?.find(m => m.active);
+                if (defNav) activeNav.value = defNav.id;
+                const defSide = instance.menus.sidebar?.find(m => m.active);
+                if (defSide) activeSide.value = defSide.id;
+            }
+
+            instance.mount(sys);
+            appLogic.value = instance;
+            booting.value = false;
+        } else {
+            throw new Error("Instance mount failed: Corrupted logic.");
+        }
+
+    } catch (e) {
+        booting.value = false;
+        error.value = e.message;
+    }
+};
+
+const detectMobile = () => {
+    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    isMobile.value = isTouch || isMobileUA || window.innerWidth <= 768;
+};
+
+watch(() => uiStore.currentLang, () => {
+    if (targetApp.value && !booting.value && appType.value === 'native') {
+        cleanupApp();
+        bootApp();
+    }
+});
+
+onMounted(() => {
+    detectMobile();
+    loadRegistry(); loadAds();
+    const updateTheme = () => { currentTheme.value = document.documentElement.getAttribute('data-theme') || 'dark'; };
+    updateTheme();
+    new MutationObserver(updateTheme).observe(document.documentElement, { attributes: true });
+});
+</script>
+
+<style scoped>
+.iframe-full { width: 100%; height: 100%; border: none; display: block; background: transparent; }
+
+.os-root {
+    --bg-page: #050505; --text-main: #ffffff; --border: rgba(255, 255, 255, 0.1); --brand: #06b6d4; --card-bg: rgba(30, 30, 35, 0.6); --card-bg-mobile: #121215;
+    position: fixed; inset: 0; padding-top: 80px; z-index: 50; display: flex; flex-direction: column; background: var(--bg-page); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden;
+}
+
+.os-root[data-theme="light"] { --bg-page: #f8fafc; --text-main: #1e293b; --card-bg: rgba(255,255,255,0.65); --card-bg-mobile: #f8fafc; }
+.os-body-wrapper, .os-body, .os-main, .os-viewport { flex: 1; display: flex; flex-direction: column; width: 100%; height: 100%; position: relative; overflow: hidden; }
+.os-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background: var(--bg-page); }
+.cyberpunk-scene { position: absolute; inset: 0; background: #020205; perspective: 1000px; }
+.cyber-grid-floor { position: absolute; width: 200%; height: 200%; top: -50%; left: -50%; background-image: linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 60px 60px; transform: rotateX(60deg); animation: grid-move 20s linear infinite; }
+.os-world { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; }
+
+.single-app-wrapper.full-screen-mode {
+    width: 100%; height: 100%; max-width: 100vw; background: var(--card-bg); overflow: hidden; display: flex; flex-direction: column; border-radius: 0; border: none; margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+    .os-root { padding-top: 0 !important; }
+    .single-app-wrapper.mobile-full { display: flex; flex-direction: column; width: 100% !important; height: 100% !important; max-width: 100vw !important; margin: 0 !important; background: var(--card-bg-mobile) !important; border: none !important; border-radius: 0 !important; }
+}
+
+.app-content-layer { flex: 1; position: relative; overflow: hidden; width: 100%; display: flex; flex-direction: column; height: 100%; }
+.native-root { width: 100%; flex: 1; display: block; isolation: isolate; box-sizing: border-box; }
+.mobile-ad-container { width: 100%; height: 35px; background: #080808; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ad-title { font-family: 'Courier New', monospace; font-size: 10px; color: #bbb; text-transform: uppercase; }
+.mobile-corner-back { position: fixed; bottom: 55px; right: 0; width: 50px; height: 50px; background: #06b6d4; color: #000; border: none; border-top-left-radius: 16px; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.state-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg-page); z-index: 100; }
+.text-brand { color: var(--brand); }
+@keyframes grid-move { 0% { background-position: 0 0; } 100% { background-position: 0 50px; } }
+
+/* ========================================================
+   [OS TRIAD BRIDGE CSS] - MOBILE CARNIVAL EDITION
+   ======================================================== */
+.triad-active {
+    --bg-core: transparent; --bg-panel: rgba(25, 25, 30, 0.98); --text-main: #00BBF9;
+    --brand: #00BBF9; --border: rgba(255,255,255,0.15); --accent-blue: #00BBF9;
+    --accent-green: #3DDC84; --accent-yellow: #FEE440; --accent-pink: #FF006E;
+    --text-muted: #94A3B8; --bg-input: rgba(0,0,0,0.4); --text-input: #FEE440;
+    --text-btn: #1E1B4B; --bubble-gloss: rgba(255,255,255,0.15);
+    color: var(--text-main); overflow: hidden;
+}
+.os-root[data-theme="light"] .triad-active {
+    --bg-core: #F0F4FF; --bg-panel: #FFFFFF; --text-main: #1E1B4B; --brand: #00BBF9; --border: #CBD5E1;
+    --text-muted: #64748B; --bg-input: rgba(0,0,0,0.05); --text-input: #1E1B4B; --bubble-gloss: rgba(255,255,255,0.6);
+}
+
+.triad-top-bar { height: 60px; background: var(--bg-panel); border-bottom: 4px solid var(--border); display: flex; justify-content: space-between; align-items: center; padding: 0 15px; flex-shrink: 0; z-index: 50; }
+.triad-layout-body { flex: 1; display: flex; position: relative; overflow: hidden; height: 100%; width: 100%; }
+.legacy-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%; }
+
+.triad-sidebar { width: 80px; background: var(--bg-panel); border-right: 4px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; gap: 5px; z-index: 60; flex-shrink: 0; overflow-y: auto; }
+
+/* [FIXED] CLASS .OPEN DITAMBAHKAN KEMBALI AGAR SIDEBAR BISA MUNCUL */
+.mobile-sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1); }
+.mobile-sidebar.open { transform: translateX(0); }
+.sidebar-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); z-index: 55; }
+
+.side-btn { background: none; border: none; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 10px 0; width: 100%; cursor: pointer; transition: 0.2s; font-size: 10px; font-weight: 800; border-left: 4px solid transparent; }
+.side-btn.active { color: var(--brand); border-left: 4px solid var(--brand); background: rgba(0,0,0,0.2); }
+.side-icon { font-size: 22px; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 1rem; transition: 0.3s; }
+.side-btn.active .side-icon { background: var(--brand); color: var(--text-btn); box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2), inset 0 4px 0 var(--bubble-gloss); }
+
+.triad-workspace { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; height: 100%; width: 100%; }
+.legacy-workspace { flex: 1; display: flex; flex-direction: column; position: relative; overflow-y: auto; height: 100%; }
+.triad-scroll { flex: 1; overflow-y: auto; position: relative; padding-bottom: 130px; box-sizing: border-box; }
+
+.triad-dock-wrapper { position: absolute; bottom: 0; left: 0; width: 100%; z-index: 50; display: flex; flex-direction: column; align-items: center; }
+.action-dock-outer { width: 100%; background: var(--bg-panel); border-top: 4px solid var(--border); padding: 10px 10px; display: flex; align-items: center; gap: 5px; box-shadow: 0 -10px 20px rgba(0,0,0,0.05); }
+.action-dock-inner { flex: 1; display: flex; gap: 10px; overflow-x: auto; padding: 5px 0; scroll-behavior: smooth; scrollbar-width: none; }
+.action-dock-inner::-webkit-scrollbar { display: none; }
+
+.main-dock { height: 60px; width: 100%; background: var(--bg-panel); border-top: 4px solid var(--border); display: flex; justify-content: space-around; align-items: center; }
+.main-dock button { background: none; border: none; color: var(--text-muted); font-size: 10px; font-weight: 800; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
+.main-dock button.active { color: var(--brand); }
+.main-dock button.active .nav-icon { background: var(--brand); color: var(--text-btn); padding: 5px 15px; border-radius: 2rem; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2), inset 0 4px 0 var(--bubble-gloss); }
+.nav-icon { font-size: 16px; transition: 0.3s; padding: 5px 15px; border-radius: 2rem; }
+
+.btn-icon { background: var(--brand); color: var(--text-btn); border: 3px solid var(--border); border-bottom: 5px solid rgba(0,0,0,0.3); border-radius: 50%; width: 45px; height: 45px; min-width: 45px; font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.1s; box-shadow: inset 0 4px 0 var(--bubble-gloss); padding: 0; flex: 0 0 auto; }
+.bouncy-fx:active, .btn-icon:active { transform: translateY(4px); border-bottom-width: 2px; margin-top: 4px; box-shadow: inset 0 2px 0 var(--bubble-gloss); }
+.btn-danger { background: var(--accent-pink); color: #FFF; }
+.btn-blue { background: var(--accent-blue); }
+.btn-green { background: var(--accent-green); }
+.btn-yellow { background: var(--accent-yellow); }
+.btn-gray { background: var(--border); }
+
+.bouncy-up { animation: slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+@keyframes slideUp { 0% { transform: translateY(50px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+.custom-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.custom-scrollbar::-webkit-scrollbar { display: none; }
+
+/* [ADDED] POPUP DYNAMIC DARI DESKTOP (UNIVERSAL ANDROID GREEN) */
+.triad-popup-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 200000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.universal-green-pop {
+    background: #3DDC84 !important; /* HIJAU ANDROID */
+    border: 4px solid #1E1B4B !important;
+    border-radius: 30px !important;
+    box-shadow: 0 15px 0 #000 !important;
+    color: #1E1B4B !important; /* TEKS HITAM INDIGO BIAR TAJAM */
+}
+.triad-popup-card { display: flex; flex-direction: column; overflow: hidden; max-width: 95vw; }
+.triad-popup-header { padding: 15px 20px; border-bottom: 3px solid rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; font-family: 'Fredoka', sans-serif; font-weight: 900; text-transform: uppercase; }
+.btn-pop-close { width: 35px; height: 35px; border-radius: 50%; border: none; background: #FF006E; color: white; font-weight: 900; cursor: pointer; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2); }
+.triad-popup-content { padding: 20px; max-height: 70vh; overflow-y: auto; font-weight: 800; }
+
+/* MODAL CENTERING (UNIVERSAL GREEN) */
+.sys-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 300000; display: flex; align-items: center; justify-content: center; }
+.sys-modal-card { width: 90%; max-width: 350px; padding: 30px; text-align: center; }
+.sys-modal-header { font-weight: 900; font-size: 1.3rem; margin-bottom: 15px; font-family: 'Fredoka', sans-serif; text-transform: uppercase; }
+.sys-modal-body { font-size: 1rem; opacity: 0.9; margin-bottom: 25px; line-height: 1.5; font-weight: 800; }
+.sys-modal-footer { display: flex; gap: 10px; justify-content: center; }
+
+.sys-btn { padding: 12px 25px; border-radius: 50px; font-weight: 900; border: none; cursor: pointer; font-family: 'Fredoka', sans-serif; transition: 0.2s; }
+.sys-btn.primary-dark { background: #1E1B4B; color: #FFFFFF; }
+.sys-btn.secondary-dark { background: rgba(0,0,0,0.1); color: #1E1B4B; border: 2px solid #1E1B4B; }
+.sys-btn:active { transform: scale(0.95); }
+
+.shake { animation: sys-shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+@keyframes sys-shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
+.sys-pop-enter-active, .sys-pop-leave-active { transition: opacity 0.3s ease; }
+.sys-pop-enter-from, .sys-pop-leave-to { opacity: 0; }
+.sys-pop-enter-active .sys-modal-card, .sys-pop-enter-active .triad-popup-card { animation: bouncyIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.sys-pop-leave-active .sys-modal-card, .sys-pop-leave-active .triad-popup-card { transform: scale(0.8); transition: 0.3s; }
+@keyframes bouncyIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+</style>
+
+#######################################################################
+# WEBSITE https://flowork.cloud
+# File NAME : C:\Users\User\Music\web\public\store\fake-name-generator\index.html JUMLAH BARIS 205 
+#######################################################################
+
+```html
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ALIAS FORGE | GUMMY V5.1</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.2/dist/vuetify.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.2/dist/vuetify.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;800&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@5.x/css/materialdesignicons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-core: #F0F4FF; --bg-panel: #FFFFFF; --text-main: #1E1B4B;
+            --border-color: #CBD5E1; --brand-color: #F72585;
+            --green-android: #3DDC84; --yellow-cyber: #FEE440; --blue-sky: #00BBF9;
+            --text-on-btn: #1E1B4B; --text-muted: #64748B;
+        }
+        [data-theme='dark'] {
+            --bg-core: #0F172A; --bg-panel: #1E293B; --text-main: #E0F2FE !important;
+            --border-color: #334155; --brand-color: #FF006E;
+            --text-on-btn: #E0F2FE; --text-muted: #94A3B8;
+        }
+        * { -ms-overflow-style: none; scrollbar-width: none; }
+        *::-webkit-scrollbar { display: none; }
+        html, body { background-color: var(--bg-core); color: var(--text-main); width: 100%; height: 100dvh; overflow: hidden; margin: 0; font-family: 'Quicksand', sans-serif; transition: background 0.3s; }
+        .gummy-board { background: var(--bg-panel); border-radius: 2.5rem; border: 4px solid var(--border-color); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .input-carved { background: rgba(0,0,0,0.05) !important; border: 3px solid var(--border-color) !important; border-radius: 1.8rem !important; font-weight: 800; color: var(--blue-sky) !important; }
+        .btn-game { background-color: var(--brand-color) !important; color: var(--text-on-btn) !important; border-bottom: 8px solid rgba(0,0,0,0.25); border-radius: 1.8rem; font-family: 'Fredoka', sans-serif; font-weight: 800; transition: all 0.1s; text-transform: uppercase; padding: 1rem 2rem; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-game:active { border-bottom-width: 0px; transform: translateY(8px); }
+        .font-display { font-family: 'Fredoka', sans-serif; }
+        .tab-fade-enter-active, .tab-fade-leave-active { transition: all 0.3s ease; }
+        .tab-fade-enter-from { opacity: 0; transform: scale(0.9); }
+    </style>
+</head>
+<body>
+    <div id="vue-root"></div>
+    <script>
+        const DB = {
+            id: {
+                firstM: ["Budi", "Agus", "Reza", "Dimas", "Eko", "Fajar", "Gilang", "Hendra", "Indra", "Joko", "Kevin", "Lukman"],
+                firstF: ["Siti", "Ayu", "Dewi", "Putri", "Rina", "Tari", "Wulan", "Yulia", "Nadia", "Fitri", "Lestari", "Maya"],
+                last: ["Santoso", "Wijaya", "Saputra", "Hidayat", "Pratama", "Nugroho", "Wibowo", "Kusuma", "Utami", "Sari", "Pertiwi"],
+                streets: ["Jl. Sudirman", "Jl. Ahmad Yani", "Jl. Gajah Mada", "Jl. Diponegoro", "Jl. Merdeka", "Jl. Pahlawan", "Jl. Melati"],
+                cities: ["Jakarta", "Surabaya", "Bandung", "Medan", "Semarang", "Yogyakarta", "Makassar", "Denpasar"],
+                jobs: ["Software Engineer", "Marketing Staff", "Guru", "PNS", "Wiraswasta", "Desainer Grafis", "Akuntan"]
+            },
+            us: {
+                firstM: ["James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles"],
+                firstF: ["Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen"],
+                last: ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez"],
+                streets: ["Main St", "Broadway", "Wall St", "5th Avenue", "Sunset Blvd", "Park Ave", "Oak St"],
+                cities: ["New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Phoenix, AZ", "Miami, FL"],
+                jobs: ["Data Analyst", "Consultant", "Manager", "Developer", "Sales Rep", "Nurse", "Teacher"]
+            },
+            jp: {
+                firstM: ["Hiroshi", "Kenji", "Takeshi", "Yuki", "Daiki", "Ren", "Haruto", "Sota"],
+                firstF: ["Sakura", "Hina", "Yui", "Aoi", "Rin", "Mio", "Nanami", "Akari"],
+                last: ["Sato", "Suzuki", "Takahashi", "Tanaka", "Watanabe", "Ito", "Yamamoto", "Nakamura"],
+                streets: ["Shibuya", "Shinjuku", "Ginza", "Roppongi", "Harajuku", "Akihabara"],
+                cities: ["Tokyo", "Osaka", "Kyoto", "Yokohama", "Sapporo", "Fukuoka"],
+                jobs: ["Office Worker", "Engineer", "Teacher", "Designer", "Chef", "Doctor"]
+            }
+        };
+
+        const i18n = {
+            id: {
+                lBadge: "MODE PENYAMARAN: AKTIF",
+                lTitle: "IDENTITAS", lTitleHl: "PALSU!",
+                lDesc: "Data lo mahal, Bro. Jangan asal sebar ke website gak jelas. Pake Legend Generator biar tetep anonim.",
+                lBtnGo: "SPILL IDENTITAS BARU",
+                lBab1: "BAB 1: DISINFORMASI", lBab1P: "Tiap isi form WiFi bandara, lo ninggalin serpihan puzzle. Solusinya? Kasih data sampah.",
+                lBab2: "BAB 2: LEGEND PROFILE", lBab2P: "Agen intelijen gak pernah pake nama asli. Alias Forge bikin Legend pribadi lo yang keliatan valid.",
+                appTitle: "FORGE TERMINAL",
+                lblRegion: "ASAL NEGARA", lblGender: "JENIS KELAMIN",
+                btnMale: "PRIA", btnFemale: "WANITA", btnForge: "GANTI IDENTITAS",
+                lblCodeName: "CODE NAME", lblDob: "TANGGAL LAHIR", lblUuid: "UUID HASH",
+                lblAddr: "ALAMAT", lblEmail: "BURNER EMAIL", lblPass: "SECRET PASSWORD",
+                lblMockPay: "MOCK PAYMENT DATA",
+                toastCopied: "BERHASIL DISALIN!",
+                statusLevel: "LEVEL 4 CLEARANCE"
+            },
+            en: {
+                lBadge: "GHOST MODE: ACTIVE",
+                lTitle: "FAKE", lTitleHl: "IDENTITY!",
+                lDesc: "Your data is expensive. Don't spray it on random sites. Use Legend Generator to stay anonymous.",
+                lBtnGo: "SPILL NEW IDENTITY",
+                lBab1: "CH 1: DISINFORMATION", lBab1P: "Every airport WiFi form collects your data. The fix? Give them visual trash.",
+                lBab2: "CH 2: LEGEND PROFILE", lBab2P: "Agents never use real names. Alias Forge builds your 'Legend' that looks 100% valid.",
+                appTitle: "FORGE TERMINAL",
+                lblRegion: "REGION", lblGender: "GENDER",
+                btnMale: "MALE", btnFemale: "FEMALE", btnForge: "RE-FORGE IDENTITY",
+                lblCodeName: "CODE NAME", lblDob: "DATE OF BIRTH", lblUuid: "UUID HASH",
+                lblAddr: "ADDRESS", lblEmail: "BURNER EMAIL", lblPass: "SECRET PASSWORD",
+                lblMockPay: "MOCK PAYMENT DATA",
+                toastCopied: "COPIED TO CLIPBOARD!",
+                statusLevel: "LEVEL 4 CLEARANCE"
+            }
+        };
+
+        const AppCore = {
+            async init() {
+                const cb = Date.now();
+                const [rLander, rApp] = await Promise.all([fetch('partials/lander.html?v='+cb), fetch('partials/app.html?v='+cb)]);
+                this.initVue(await rLander.text(), await rApp.text());
+            },
+            initVue(tLander, tApp) {
+                const { createApp, ref, computed, watch, onMounted } = Vue;
+                const { createVuetify } = Vuetify;
+                const savedTheme = localStorage.getItem('flowork_os_theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                const vuetify = createVuetify({ theme: { defaultTheme: savedTheme } });
+
+                createApp({
+                    template: `
+                    <v-app style="background: transparent;">
+                        <header class="w-full h-20 bg-[var(--bg-panel)] border-b-8 border-[var(--border-color)] z-50 px-6 flex justify-between items-center shrink-0">
+                            <h1 class="font-display text-2xl font-black text-[var(--text-main)] uppercase italic tracking-tighter">ALIAS<span class="text-[var(--blue-sky)]">FORGE</span></h1>
+                            <div class="flex gap-4 h-full items-end pb-2">
+                                <button @click="currentTab = 'lander'" :class="currentTab === 'lander' ? 'text-[var(--brand-color)] border-b-4 border-[var(--brand-color)] font-black' : 'text-[var(--text-main)] font-bold opacity-30'">INTEL</button>
+                                <button @click="currentTab = 'app'" :class="currentTab === 'app' ? 'text-[var(--brand-color)] border-b-4 border-[var(--brand-color)] font-black' : 'text-[var(--text-main)] font-bold opacity-30'">TERMINAL</button>
+                            </div>
+                        </header>
+                        <v-main class="flex-1 relative overflow-hidden">
+                            <transition name="tab-fade"><div v-show="currentTab === 'lander'" class="absolute inset-0 pb-6 pt-4 px-4 md:px-8 overflow-hidden">${tLander}</div></transition>
+                            <transition name="tab-fade"><div v-show="currentTab === 'app'" class="absolute inset-0 pb-[85px] pt-4 px-4 md:px-8 overflow-hidden">${tApp}</div></transition>
+                        </v-main>
+                        <v-snackbar v-model="snackbar.show" :color="snackbar.color" rounded="xl">
+                            <span class="font-black uppercase tracking-widest text-xs">{{ snackbar.text }}</span>
+                        </v-snackbar>
+                    </v-app>`,
+                    setup() {
+                        const currentTab = ref('lander');
+                        const currentLang = ref(localStorage.getItem('flowork_lang') || 'id');
+                        const t = computed(() => i18n[currentLang.value] || i18n['id']);
+                        const snackbar = ref({ show: false, text: '', color: '' });
+
+                        const appState = ref({
+                            region: 'id', gender: 'male',
+                            identity: { name: '---', job: '---', user: '---', dob: '---', uuid: '---', addr: '---', city: '---', phone: '---', email: '---', pass: '---', cc: '####', exp: 'MM/YY', cvv: '###' },
+                            avatar: ''
+                        });
+
+                        onMounted(() => {
+                            if(localStorage.getItem('forge_visited')) currentTab.value = 'app';
+                            generateIdentity();
+                        });
+
+                        watch(currentTab, (v) => { if(v === 'app') localStorage.setItem('forge_visited', 'true'); });
+
+                        const generateCC = () => {
+                            let cc = "4"; while (cc.length < 15) cc += Math.floor(Math.random() * 10);
+                            let sum = 0, rev = cc.split("").reverse().join("");
+                            for (let i = 0; i < rev.length; i++) { let d = parseInt(rev[i]); if (i % 2 == 0) { d *= 2; if (d > 9) d -= 9; } sum += d; }
+                            let check = (10 - (sum % 10)) % 10;
+                            return (cc + check).replace(/(.{4})/g, '$1 ').trim();
+                        };
+
+                        const generateIdentity = () => {
+                            const data = DB[appState.value.region];
+                            const first = appState.value.gender === 'male' ? data.firstM[Math.floor(Math.random()*data.firstM.length)] : data.firstF[Math.floor(Math.random()*data.firstF.length)];
+                            const last = data.last[Math.floor(Math.random()*data.last.length)];
+                            const user = `${first.toLowerCase()}.${last.toLowerCase()}${Math.floor(Math.random()*89+10)}`;
+
+                            appState.value.identity = {
+                                name: `${first} ${last}`, job: data.jobs[Math.floor(Math.random()*data.jobs.length)],
+                                user: user.toUpperCase(), dob: `${Math.floor(Math.random()*28+1)}/${Math.floor(Math.random()*12+1)}/${Math.floor(Math.random()*20+1980)}`,
+                                uuid: crypto.randomUUID().split('-')[0].toUpperCase(),
+                                addr: `${Math.floor(Math.random()*200+1)} ${data.streets[Math.floor(Math.random()*data.streets.length)]}`,
+                                city: `${data.cities[Math.floor(Math.random()*data.cities.length)]}, ${Math.floor(Math.random()*89999+10000)}`,
+                                phone: `+${appState.value.region === 'id' ? '62' : '1'} 8${Math.floor(Math.random()*89+10)}-${Math.floor(Math.random()*8999+1000)}`,
+                                email: `${user}@gmail.com`, pass: `${last}${Math.floor(Math.random()*899+100)}!`,
+                                cc: generateCC(), exp: `${Math.floor(Math.random()*12+1).toString().padStart(2,'0')}/${Math.floor(Math.random()*5+25)}`,
+                                cvv: Math.floor(Math.random()*899+100)
+                            };
+                            appState.value.avatar = `https://robohash.org/${user}?set=set3&bgset=bg2`;
+                        };
+
+                        const copy = (val) => {
+                            navigator.clipboard.writeText(val);
+                            snackbar.value = { show: true, text: t.value.toastCopied, color: 'success' };
+                        };
+
+                        return { currentTab, t, appState, generateIdentity, copy, snackbar };
+                    }
+                }).use(vuetify).mount('#vue-root');
+
+                window.addEventListener('message', (e) => {
+                    if (e.data?.type === 'THEME_CHANGE') {
+                        vuetify.theme.global.name.value = e.data.theme;
+                        document.documentElement.setAttribute('data-theme', e.data.theme);
+                        localStorage.setItem('flowork_os_theme', e.data.theme);
+                    }
+                    if (e.data?.type === 'LANG_CHANGE') {
+                        localStorage.setItem('flowork_lang', e.data.lang);
+                        location.reload();
+                    }
+                });
+            }
+        };
+        window.onload = () => AppCore.init();
+    </script>
+</body>
+</html>
+```
+
+#######################################################################
+# WEBSITE https://flowork.cloud
+# File NAME : C:\Users\User\Music\web\public\store\fake-name-generator\manifest.json JUMLAH BARIS 16 
+#######################################################################
+
+```json
+{
+    "id": "alias-forge",
+    "name": "Alias Forge - GENERATOR IDENTITAS PALSU (ANTI LACAK)",
+    "version": "1.0.0",
+    "description": "JANGAN PAKAI NAMA ASLI! Buat profil samaran (Burner Identity) lengkap dengan Alamat, CC Dummy, & Data Biometrik palsu dalam 1 detik. Lindungi privasi Anda dari website mencurigakan.",
+    "author": "Flowork Cyber Division",
+    "tier": "free",
+    "type": "apps",
+    "entry_point": "index.html",
+    "icon_file": "icon.svg",
+    "default_width": 12,
+    "default_height": 9,
+    "slug": "alias-forge",
+    "capabilities": ["client_side_only", "clipboard_write"],
+    "tags": ["fake-identity", "privacy", "mock-data", "generator", "security", "opsec"]
+}
+```
+
+#######################################################################
+# WEBSITE https://flowork.cloud
+# File NAME : C:\Users\User\Music\web\public\store\fake-name-generator\partials\app.html JUMLAH BARIS 104 
+#######################################################################
+
+```html
+<div class="flex flex-col xl:flex-row gap-8 h-full w-full overflow-hidden">
+    <div class="w-full xl:w-[380px] gummy-board p-8 flex flex-col h-full overflow-y-auto shrink-0 !border-[var(--brand-color)] !border-b-[12px]">
+        <h2 class="font-display text-2xl font-black text-[var(--text-main)] uppercase border-b-8 border-dashed border-[var(--border-color)] pb-6 mb-10 italic">
+            {{ t.appTitle }} ⚙️
+        </h2>
+
+        <div class="space-y-8">
+            <div class="p-6 bg-[var(--bg-core)] rounded-[2.5rem] border-4 border-[var(--border-color)]">
+                <label class="text-[12px] font-black text-[var(--text-muted)] uppercase pl-4 mb-3 block tracking-widest">{{ t.lblRegion }}</label>
+                <select v-model="appState.region" class="input-carved w-full p-4 text-sm outline-none appearance-none">
+                    <option value="id">🇮🇩 INDONESIA</option>
+                    <option value="us">🇺🇸 USA</option>
+                    <option value="jp">🇯🇵 JAPAN</option>
+                </select>
+            </div>
+
+            <div class="p-6 bg-[var(--bg-core)] rounded-[2.5rem] border-4 border-[var(--border-color)]">
+                <label class="text-[12px] font-black text-[var(--text-muted)] uppercase pl-4 mb-3 block tracking-widest">{{ t.lblGender }}</label>
+                <div class="flex gap-4">
+                    <button @click="appState.gender = 'male'" :class="appState.gender === 'male' ? 'bg-[var(--blue-sky)] text-[#1E1B4B] shadow-lg' : 'opacity-30'" class="flex-1 py-4 rounded-[1.8rem] font-black text-xs transition-all uppercase border-2 border-[var(--border-color)]">
+                        {{ t.btnMale }}
+                    </button>
+                    <button @click="appState.gender = 'female'" :class="appState.gender === 'female' ? 'bg-[var(--brand-color)] text-white shadow-lg' : 'opacity-30'" class="flex-1 py-4 rounded-[1.8rem] font-black text-xs transition-all uppercase border-2 border-[var(--border-color)]">
+                        {{ t.btnFemale }}
+                    </button>
+                </div>
+            </div>
+
+            <button @click="generateIdentity" class="btn-game w-full !text-xl !py-8 !bg-[var(--yellow-cyber)] !text-[#1E1B4B]">
+                <v-icon icon="mdi-refresh-circle" size="32"></v-icon>
+                {{ t.btnForge }}
+            </button>
+        </div>
+
+        <div class="mt-auto bg-[var(--green-android)] p-6 rounded-[2.5rem] text-[#1E1B4B] flex items-center gap-4 border-b-8 border-black/20">
+            <v-icon icon="mdi-shield-check" size="40"></v-icon>
+            <div class="text-xl font-display font-black italic uppercase">{{ t.statusLevel }}</div>
+        </div>
+    </div>
+
+    <div class="flex-1 gummy-board p-8 flex flex-col h-full overflow-hidden !border-[var(--blue-sky)] !border-b-[12px]">
+        <div class="flex-1 overflow-y-auto bg-[var(--bg-core)] rounded-[3rem] p-8 md:p-10 border-8 border-double border-[var(--border-color)]">
+
+            <div class="flex flex-col lg:flex-row gap-12 items-center mb-16">
+                <div class="w-48 h-48 bg-white rounded-[3rem] border-8 border-[var(--blue-sky)] shadow-2xl overflow-hidden shrink-0">
+                    <img :src="appState.avatar" class="w-full h-full object-cover">
+                </div>
+                <div class="text-center lg:text-left flex-1">
+                    <h2 class="text-5xl md:text-7xl font-display font-black text-[var(--text-main)] uppercase tracking-tighter mb-4 italic">{{ appState.identity.name }}</h2>
+                    <div class="inline-block bg-[var(--brand-color)] text-white px-6 py-2 rounded-full font-black text-sm uppercase italic">{{ appState.identity.job }}</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="space-y-6">
+                    <div @click="copy(appState.identity.user)" class="p-6 bg-[var(--bg-panel)] rounded-[2.5rem] border-4 border-[var(--border-color)] hover:border-[var(--blue-sky)] cursor-pointer transition-all active:scale-95">
+                        <label class="text-[10px] font-black opacity-50 block mb-1 uppercase">{{ t.lblCodeName }}</label>
+                        <div class="text-2xl font-display font-black text-[var(--blue-sky)] tracking-widest">{{ appState.identity.user }}</div>
+                    </div>
+                    <div class="p-6 bg-[var(--bg-panel)] rounded-[2.5rem] border-4 border-[var(--border-color)]">
+                        <label class="text-[10px] font-black opacity-50 block mb-1 uppercase">{{ t.lblDob }}</label>
+                        <div class="text-2xl font-display font-black text-[var(--text-main)]">{{ appState.identity.dob }}</div>
+                    </div>
+                    <div @click="copy(appState.identity.addr)" class="p-6 bg-[var(--bg-panel)] rounded-[2.5rem] border-4 border-[var(--border-color)] hover:border-[var(--blue-sky)] cursor-pointer transition-all">
+                        <label class="text-[10px] font-black opacity-50 block mb-1 uppercase">{{ t.lblAddr }}</label>
+                        <div class="text-lg font-bold text-[var(--text-main)]">{{ appState.identity.addr }}</div>
+                        <div class="text-sm font-black text-[var(--text-muted)]">{{ appState.identity.city }}</div>
+                    </div>
+                    <div class="p-6 bg-[var(--bg-panel)] rounded-[2.5rem] border-4 border-[var(--border-color)]">
+                        <label class="text-[10px] font-black opacity-50 block mb-1 uppercase">{{ t.lblUuid }}</label>
+                        <div class="text-[10px] text-[var(--text-muted)] font-mono break-all">{{ appState.identity.uuid }}</div>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div @click="copy(appState.identity.email)" class="p-6 bg-[var(--bg-panel)] rounded-[2.5rem] border-4 border-[var(--border-color)] hover:border-[var(--green-android)] cursor-pointer transition-all">
+                        <label class="text-[10px] font-black opacity-50 block mb-1 uppercase">{{ t.lblEmail }}</label>
+                        <div class="text-lg font-bold text-[var(--text-main)] break-all">{{ appState.identity.email }}</div>
+                    </div>
+                    <div @click="copy(appState.identity.pass)" class="p-6 bg-[var(--bg-panel)] rounded-[2.5rem] border-4 border-[var(--border-color)] hover:border-[var(--brand-color)] cursor-pointer transition-all">
+                        <label class="text-[10px] font-black opacity-50 block mb-1 uppercase">{{ t.lblPass }}</label>
+                        <div class="text-2xl font-display font-black text-[var(--brand-color)]">{{ appState.identity.pass }}</div>
+                    </div>
+
+                    <div @click="copy(appState.identity.cc)" class="p-8 bg-[#1E1B4B] text-white rounded-[2.5rem] shadow-2xl relative overflow-hidden cursor-pointer hover:rotate-2 transition-transform border-b-[12px] border-black/30">
+                        <div class="absolute top-0 right-0 p-6 opacity-20"><v-icon icon="mdi-credit-card-chip" size="80" color="var(--yellow-cyber)"></v-icon></div>
+                        <label class="text-[10px] font-black text-[var(--blue-sky)] block mb-6 uppercase tracking-widest">{{ t.lblMockPay }}</label>
+                        <div class="text-2xl md:text-3xl font-display font-black tracking-[0.2em] mb-6 text-[var(--yellow-cyber)]">{{ appState.identity.cc }}</div>
+                        <div class="flex gap-12">
+                            <div>
+                                <div class="text-[9px] font-black text-[var(--green-android)] uppercase mb-1">EXPIRY</div>
+                                <div class="text-xl font-display font-black italic">{{ appState.identity.exp }}</div>
+                            </div>
+                            <div>
+                                <div class="text-[9px] font-black text-[var(--green-android)] uppercase mb-1">CVV</div>
+                                <div class="text-xl font-display font-black italic">{{ appState.identity.cvv }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+```
+
+#######################################################################
+# WEBSITE https://flowork.cloud
+# File NAME : C:\Users\User\Music\web\public\store\fake-name-generator\partials\lander.html JUMLAH BARIS 40 
+#######################################################################
+
+```html
+<div class="flex flex-col items-center justify-center min-h-full w-full text-center px-6 overflow-y-auto">
+    <div class="inline-block bg-[var(--yellow-cyber)] text-[#1E1B4B] px-8 py-3 rounded-full font-black uppercase text-[12px] mb-10 tracking-[0.4em] animate-bounce shadow-xl">
+        🚀 {{ t.lBadge }}
+    </div>
+
+    <h1 class="font-display text-7xl md:text-9xl font-black text-[var(--text-main)] mb-10 leading-[0.8] uppercase italic tracking-tighter">
+        {{ t.lTitle }} <br>
+        <span class="text-[var(--brand-color)]">{{ t.lTitleHl }}</span>
+    </h1>
+
+    <p class="text-2xl md:text-3xl text-[var(--text-muted)] font-black mb-16 max-w-4xl mx-auto leading-tight italic opacity-80">
+        {{ t.lDesc }}
+    </p>
+
+    <div class="flex flex-wrap gap-8 justify-center mb-32">
+        <button @click="currentTab = 'app'" class="btn-game text-2xl md:text-4xl !px-20 !py-10 !bg-[var(--blue-sky)]">
+            <v-icon icon="mdi-account-plus" size="48"></v-icon>
+            {{ t.lBtnGo }}
+        </button>
+    </div>
+
+    <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-20 pb-32 text-left">
+        <div class="space-y-6">
+            <h2 class="font-display text-4xl font-black text-[var(--text-main)] uppercase border-l-[12px] border-[var(--brand-color)] pl-8 italic">
+                {{ t.lBab1 }}
+            </h2>
+            <p class="text-xl font-bold text-[var(--text-muted)] leading-relaxed">
+                {{ t.lBab1P }}
+            </p>
+        </div>
+        <div class="space-y-6">
+            <h2 class="font-display text-4xl font-black text-[var(--text-main)] uppercase border-l-[12px] border-[var(--blue-sky)] pl-8 italic">
+                {{ t.lBab2 }}
+            </h2>
+            <p class="text-xl font-bold text-[var(--text-muted)] leading-relaxed">
+                {{ t.lBab2P }}
+            </p>
+        </div>
+    </div>
+</div>
+```
